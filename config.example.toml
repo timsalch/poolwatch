@@ -27,7 +27,17 @@ filter_name = "Filter Pump"       # run `poolwatch pump-info` to see names and i
 dry_run = true                    # flip to false once you trust the decisions log
 
 [notify]
+# Push notifications with the free ntfy app (subscribe to this topic in the app).
 # ntfy_topic = "poolwatch-some-long-random-string"
+
+# Email alerts with the camera frame attached. For Gmail, use an app password
+# (Google Account > Security > App passwords) in the POOLWATCH_SMTP_PASSWORD
+# environment variable. Test with `poolwatch test-alert`.
+# email_to = ["you@example.com"]
+# smtp_user = "your.sender@gmail.com"
+# smtp_host = "smtp.gmail.com"
+# smtp_port = 587
+# email_min_severity = "WARNING"   # INFO, WARNING or CRITICAL
 
 # Polygons in image pixel coordinates, [x, y] points. Grab coordinates from a
 # snapshot (Roboflow's zone tool or any image editor shows pixel positions).

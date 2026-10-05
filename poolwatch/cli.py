@@ -80,7 +80,7 @@ async def _run(cfg, dry_run: bool) -> None:
 
 
 async def _run_loop(cfg, ring, dry_run: bool, tz) -> None:
-    from .notify import ConsoleNotifier, NtfyNotifier
+    from .notify import build_notifier
     from .pipeline import DecisionLog, Pipeline
     from .pump import OmniLogicPump
     from .roboflow_client import RoboflowWorkflowDetector
@@ -88,8 +88,7 @@ async def _run_loop(cfg, ring, dry_run: bool, tz) -> None:
     pump = OmniLogicPump(cfg.omnilogic.host, cfg.omnilogic.filter_name,
                          dry_run=dry_run or cfg.omnilogic.dry_run,
                          filter_system_id=cfg.omnilogic.filter_system_id)
-    notifier = (NtfyNotifier(cfg.notify.ntfy_topic, cfg.notify.ntfy_server)
-                if cfg.notify.ntfy_topic else ConsoleNotifier())
+    notifier = build_notifier(cfg.notify)
     pipeline = Pipeline(cfg, RoboflowWorkflowDetector(cfg.roboflow, reference_size=cfg.zone_image_size), pump, notifier,
                         DecisionLog(Path(cfg.data_dir) / "decisions.jsonl"),
                         away_source=_away_source(cfg, tz))
@@ -113,6 +112,21 @@ async def _run_loop(cfg, ring, dry_run: bool, tz) -> None:
         except Exception:
             log.exception("loop error")
         await asyncio.sleep(60)
+
+
+def _test_alert(cfg) -> None:
+    from .notify import build_notifier
+    from .safety import Alert, Severity
+
+    notifier = build_notifier(cfg.notify)
+    names = [type(n).__name__.replace("Notifier", "") for n in notifier.notifiers]
+    print("Sending a test alert via:", ", ".join(names))
+    frames = sorted(Path(cfg.data_dir, "frames").glob("*.jpg"))
+    image = frames[-1] if frames else None
+    notifier.send(Alert(Severity.CRITICAL, "test_alert",
+                        "Test alert from poolwatch. If you got this, alerts work.", 0, 0), image)
+    print("Done. Check your phone and inbox." if len(names) > 1 else
+          "Only the console is set up. Add ntfy_topic and/or email settings under [notify].")
 
 
 def _away_source(cfg, tz):
@@ -183,6 +197,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--days", type=int, default=30)
     p.add_argument("--max-clips", type=int, default=500)
     sub.add_parser("pump-info", help="list filters on the OmniLogic controller")
+    sub.add_parser("test-alert", help="send a test alert to every configured channel")
     sub.add_parser("away", help="show whether the calendar says you're away, and upcoming trips")
     p = sub.add_parser("detect", help="run the Workflow on one image and show results")
     p.add_argument("image")
@@ -215,6 +230,8 @@ def _dispatch(args) -> None:
         asyncio.run(_collect(cfg, args.hours))
     elif args.cmd == "backfill":
         asyncio.run(_backfill(cfg, args.days, args.max_clips))
+    elif args.cmd == "test-alert":
+        _test_alert(cfg)
     elif args.cmd == "away":
         _away_status(cfg)
     elif args.cmd == "pump-info":
