@@ -7,12 +7,13 @@ wired / plug-in cameras; battery cameras generally refuse on-demand snapshots.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -20,8 +21,8 @@ log = logging.getLogger(__name__)
 USER_AGENT = "poolwatch/0.1"
 
 
-def extract_frames(clip: Path, out_dir: Path, count: int = 3) -> list[Path]:
-    """Grab `count` evenly spaced frames from a clip using ffmpeg (if installed)."""
+def extract_frames(clip: Path, out_dir: Path, count: int = 3, every_s: int = 8) -> list[Path]:
+    """Grab up to `count` frames, one every `every_s` seconds, using ffmpeg (if installed)."""
     if shutil.which("ffmpeg") is None:
         log.warning("ffmpeg not found; skipping frame extraction for %s", clip.name)
         return []
@@ -30,7 +31,7 @@ def extract_frames(clip: Path, out_dir: Path, count: int = 3) -> list[Path]:
     # Ring motion clips run ~20-60s; sample at one frame every 8s up to `count`.
     subprocess.run(
         ["ffmpeg", "-loglevel", "error", "-y", "-i", str(clip),
-         "-vf", "fps=1/8", "-frames:v", str(count), str(pattern)],
+         "-vf", f"fps=1/{every_s}", "-frames:v", str(count), str(pattern)],
         check=True,
     )
     return sorted(out_dir.glob(f"{clip.stem}_*.jpg"))
@@ -161,6 +162,54 @@ class RingSource:
         if self._consecutive_404s >= 3 and not self._warned_no_recordings:
             log.warning(NO_RECORDINGS_HINT)
             self._warned_no_recordings = True
+
+    async def backfill(
+        self,
+        days: int,
+        max_clips: int = 500,
+        frames_per_clip: int = 4,
+        every_s: int = 4,
+        pause_s: float = 1.0,
+        now=None,
+    ) -> tuple[int, int]:
+        """Download motion clips from the last `days` days (as far back as Ring keeps
+        them) and extract training frames. Returns (clips downloaded, frames saved).
+        Clips already on disk are reused, so it's safe to run again."""
+        from datetime import timezone as _tz
+
+        now = now or datetime.now(_tz.utc)
+        cutoff = now - timedelta(days=days)
+        clips = frames = 0
+        older_than = None
+        while clips < max_clips:
+            batch = await self._camera.async_history(limit=100, kind="motion", older_than=older_than)
+            if not batch:
+                break
+            for event in batch:  # newest first
+                created = event.get("created_at")
+                if isinstance(created, datetime):
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=_tz.utc)
+                    if created < cutoff:
+                        return clips, frames
+                event_id = event["id"]
+                clip = self.data_dir / "clips" / f"{event_id}.mp4"
+                clip.parent.mkdir(parents=True, exist_ok=True)
+                if not clip.exists():
+                    try:
+                        await self._camera.async_recording_download(event_id, filename=str(clip))
+                    except Exception as exc:  # expired or never recorded
+                        log.debug("skipping clip %s: %s", event_id, exc)
+                        continue
+                    clips += 1
+                    if pause_s:
+                        await asyncio.sleep(pause_s)  # be gentle with Ring's API
+                frames += len(extract_frames(clip, self.data_dir / "frames",
+                                             count=frames_per_clip, every_s=every_s))
+                if clips >= max_clips:
+                    return clips, frames
+            older_than = batch[-1]["id"]
+        return clips, frames
 
     async def prime(self, limit: int = 10) -> None:
         """Mark existing events as seen so startup doesn't reprocess old clips."""

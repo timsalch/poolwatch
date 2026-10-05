@@ -87,8 +87,11 @@ export ROBOFLOW_API_KEY=...        # Windows: $env:ROBOFLOW_API_KEY = "..."
    token to `.ring_token.json` (git-ignored).
 2. **Find the pump:** `poolwatch pump-info` lists each filter pump with its id
    and body of water. If two share a name, set `omnilogic.filter_system_id`.
-3. **Collect training data:** `poolwatch collect --hours 336` saves snapshots to
-   `data/snapshots/` and motion-clip frames to `data/frames/`.
+3. **Collect training data:** `poolwatch backfill --days 60` downloads past
+   motion clips (as far back as your Ring plan keeps them) and extracts frames.
+   `poolwatch collect --hours 336` then keeps adding new snapshots to
+   `data/snapshots/` and motion-clip frames to `data/frames/`. Past snapshots
+   can't be backfilled; the library only exposes the latest one.
 4. **Train in Roboflow:** upload the frames and label floating debris. Include
    plenty of clean, sunny frames so the model learns that glare isn't debris.
 5. **Build one Workflow** with a person detector and your debris model. The
