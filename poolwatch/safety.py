@@ -73,10 +73,21 @@ def evaluate(
     water: Zone,
     deck: Zone | None = None,
     gate: Zone | None = None,
+    away: bool = False,
 ) -> Alert | None:
+    """away: the owner is out of town (from the calendar). Then anyone in the water is
+    critical, and anyone on the deck or at the gate is worth a warning."""
     scene = summarize(detections, config, water, deck, gate)
     n_water, n_deck = len(scene.in_water), len(scene.on_deck)
     quiet = any(w.contains(now.time()) for w in config.quiet_hours)
+
+    if away and n_water:
+        return Alert(Severity.CRITICAL, "in_water_while_away",
+                     f"{n_water} person(s) in the pool while you're away", n_water, n_deck)
+    if away and (n_deck or scene.at_gate):
+        n = n_deck + len(scene.at_gate)
+        return Alert(Severity.WARNING, "at_pool_while_away",
+                     f"{n} person(s) at the pool while you're away", n_water, n_deck)
 
     if n_water and quiet:
         return Alert(Severity.CRITICAL, "in_water_quiet_hours",

@@ -77,7 +77,8 @@ async def _run_loop(cfg, ring, dry_run: bool, tz) -> None:
     notifier = (NtfyNotifier(cfg.notify.ntfy_topic, cfg.notify.ntfy_server)
                 if cfg.notify.ntfy_topic else ConsoleNotifier())
     pipeline = Pipeline(cfg, RoboflowWorkflowDetector(cfg.roboflow, reference_size=cfg.zone_image_size), pump, notifier,
-                        DecisionLog(Path(cfg.data_dir) / "decisions.jsonl"))
+                        DecisionLog(Path(cfg.data_dir) / "decisions.jsonl"),
+                        away_source=_away_source(cfg, tz))
 
     next_snap = datetime.now(tz)
     log.info("running (pump %s)", "DRY RUN" if pump.dry_run else "LIVE")
@@ -98,6 +99,39 @@ async def _run_loop(cfg, ring, dry_run: bool, tz) -> None:
         except Exception:
             log.exception("loop error")
         await asyncio.sleep(60)
+
+
+def _away_source(cfg, tz):
+    """Calendar-driven away detection, or None when not configured."""
+    import os
+    from .away import CalendarAwaySource
+
+    if not cfg.away.enabled:
+        return None
+    url = os.environ.get(cfg.away.ics_url_env)
+    if not url:
+        log.warning("away.enabled is true but %s is not set; away alerts are off",
+                    cfg.away.ics_url_env)
+        return None
+    return CalendarAwaySource(url, cfg.away, tz)
+
+
+def _away_status(cfg) -> None:
+    tz = ZoneInfo(cfg.timezone)
+    source = _away_source(cfg, tz)
+    if source is None:
+        print(f"Away mode is off. Set [away] enabled = true and the {cfg.away.ics_url_env} "
+              "environment variable to your calendar's secret iCal address.")
+        return
+    source.refresh(force=True)
+    now = datetime.now(tz)
+    current = source.current(now)
+    print(f"Now: {'AWAY (' + current.reason + ')' if current else 'home'}")
+    upcoming = [w for w in source.windows() if w.end > now]
+    if not upcoming:
+        print("No current or upcoming trips found on the calendar.")
+    for w in upcoming:
+        print(f"  {w.start:%a %b %d %H:%M} -> {w.end:%a %b %d %H:%M}  {w.reason}")
 
 
 async def _pump_info(cfg) -> None:
@@ -132,6 +166,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("collect", help="save snapshots and motion frames for labeling")
     p.add_argument("--hours", type=float, default=24)
     sub.add_parser("pump-info", help="list filters on the OmniLogic controller")
+    sub.add_parser("away", help="show whether the calendar says you're away, and upcoming trips")
     p = sub.add_parser("detect", help="run the Workflow on one image and show results")
     p.add_argument("image")
     p = sub.add_parser("run", help="run the monitor loop")
@@ -161,6 +196,8 @@ def _dispatch(args) -> None:
     cfg = load_config(args.config)
     if args.cmd == "collect":
         asyncio.run(_collect(cfg, args.hours))
+    elif args.cmd == "away":
+        _away_status(cfg)
     elif args.cmd == "pump-info":
         asyncio.run(_pump_info(cfg))
     elif args.cmd == "detect":
