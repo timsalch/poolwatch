@@ -7,6 +7,7 @@ wired / plug-in cameras; battery cameras generally refuse on-demand snapshots.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
@@ -54,6 +55,7 @@ class RingSource:
         self._attempts: dict[int, int] = {}
         self._warned_no_recordings = False
         self._consecutive_404s = 0
+        self._last_snapshot_hash: str | None = None
 
     def _save_token(self, token: dict) -> None:
         self.token_path.write_text(json.dumps(token))
@@ -73,11 +75,35 @@ class RingSource:
             raise LookupError(f"No Ring camera named {self.camera_name!r}; found: {names}")
         self._camera = cams[0]
 
+    async def _latest_stored_snapshot(self) -> bytes | None:
+        """Download whatever snapshot Ring has stored (from Snapshot Capture), without
+        asking for a new one. ring_doorbell has no public method for this."""
+        try:
+            resp = await self._camera._ring.async_query(
+                f"/clients_api/snapshots/image/{self._camera.id}"
+            )
+            return resp.content or None
+        except Exception as exc:
+            log.debug("could not fetch stored snapshot: %s", exc)
+            return None
+
     async def snapshot(self) -> Path | None:
-        """Save a fresh still. Returns None if the camera refused (e.g. battery model)."""
-        data = await self._camera.async_get_snapshot()
+        """Save a still of the pool. Returns None if nothing new is available.
+
+        Asks for a fresh snapshot, waiting up to ~20s (the library default of 3s is
+        too short for many cameras). If none arrives, falls back to the latest
+        snapshot Ring already has from Snapshot Capture. Identical images are skipped.
+        """
+        data = await self._camera.async_get_snapshot(retries=10, delay=2)
+        if not data:
+            data = await self._latest_stored_snapshot()
         if not data:
             return None
+        digest = hashlib.sha256(data).hexdigest()
+        if digest == self._last_snapshot_hash:
+            log.debug("snapshot unchanged since last save; skipping")
+            return None
+        self._last_snapshot_hash = digest
         out = self.data_dir / "snapshots" / f"{datetime.now():%Y%m%d_%H%M%S}.jpg"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(data)
