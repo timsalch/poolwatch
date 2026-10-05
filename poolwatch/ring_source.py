@@ -105,7 +105,13 @@ class RingSource:
         too short for many cameras). If none arrives, falls back to the latest
         snapshot Ring already has from Snapshot Capture. Identical images are skipped.
         """
-        data = await self._camera.async_get_snapshot(retries=10, delay=2)
+        try:
+            data = await self._camera.async_get_snapshot(retries=10, delay=2)
+        except Exception as exc:
+            # ring_doorbell crashes (IndexError) when Ring returns no snapshot
+            # timestamps; the stored-snapshot fallback below still works.
+            log.debug("fresh snapshot failed: %r", exc)
+            data = None
         if not data:
             data = await self._latest_stored_snapshot()
         if not data:
