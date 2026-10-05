@@ -77,6 +77,8 @@ class RoboflowConfig:
     workflow_id: str
     api_url: str = "https://serverless.roboflow.com"
     api_key_env: str = "ROBOFLOW_API_KEY"
+    # Inputs your Workflow declares (confidence, iou_threshold, ...), sent with every call.
+    parameters: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
