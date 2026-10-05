@@ -59,3 +59,11 @@ def test_roboflow_parameters(raw):
 def test_example_config_has_workflow_parameters():
     cfg = load_config(Path(__file__).parent.parent / "config.example.toml")
     assert cfg.roboflow.parameters["iou_threshold"] == 0.3
+
+
+def test_water_exclude_from_config(raw):
+    raw["zones"]["water_exclude"] = [[[120, 120], [140, 120], [140, 140], [120, 140]]]
+    cfg = config_from_dict(raw)
+    assert not cfg.water_zone.contains((130, 130))
+    assert cfg.water_zone.contains((180, 180))
+    assert cfg.water_zone.area() == 10_000 - 400

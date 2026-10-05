@@ -132,3 +132,23 @@ def test_stale_tick_still_ends_boost(cfg):
     p = policy(cfg)
     p.tick(DIRTY, at(12)); p.tick(DIRTY, at(12, 1))
     assert p.tick(CLEAR, at(12, 31), fresh=False).kind is ActionKind.RESTORE
+
+
+def test_debris_on_table_not_counted(raw):
+    from poolwatch.config import config_from_dict
+    raw["zones"]["water_exclude"] = [[[100, 100], [130, 100], [130, 130], [100, 130]]]
+    cfg = config_from_dict(raw)
+    r = score_debris([leaf(115, 115), leaf(150, 150)], cfg.water_zone, cfg.debris)
+    assert r.count == 1
+
+
+def test_person_on_table_still_counts_as_in_pool_for_safety(raw):
+    from poolwatch.config import config_from_dict
+    from poolwatch.safety import evaluate
+    from conftest import person
+    raw["zones"]["water_exclude"] = [[[100, 100], [130, 100], [130, 130], [100, 130]]]
+    cfg = config_from_dict(raw)
+    # Alone on the in-pool table at 2pm: surrounded by water, so it must still alert.
+    alert = evaluate([person(115, 115)], at(14), cfg.safety, cfg.water_zone,
+                     cfg.deck_zone, cfg.gate_zone)
+    assert alert is not None and alert.rule == "in_water_unsupervised"

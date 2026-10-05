@@ -145,7 +145,7 @@ def config_from_dict(raw: dict) -> Config:
 
     return Config(
         timezone=raw.get("timezone", "America/Los_Angeles"),
-        water_zone=Zone.from_list("water", zones["water"]),
+        water_zone=Zone.from_list("water", zones["water"], zones.get("water_exclude")),
         deck_zone=_zone(zones, "deck"),
         gate_zone=_zone(zones, "gate"),
         ring=RingConfig(**raw["ring"]),
