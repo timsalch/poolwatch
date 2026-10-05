@@ -11,7 +11,14 @@ snapshot_interval_minutes = 15    # wired cameras only
 workspace = "your-workspace"
 workflow_id = "pool-monitor"
 api_url = "https://serverless.roboflow.com"   # or http://localhost:9001 for local Inference
-api_key_env = "ROBOFLOW_API_KEY"
+api_key_env = "ROBOFLOW_API_KEY"   # the key itself goes in this environment variable, not here
+
+# Optional: inputs your Workflow declares, copied from Roboflow's "Deploy" snippet.
+[roboflow.parameters]
+confidence = 0.4
+iou_threshold = 0.3
+class_agnostic_nms = false
+max_detections = 1000
 
 [omnilogic]
 host = "192.168.1.50"             # controller's LAN IP
