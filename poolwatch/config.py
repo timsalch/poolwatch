@@ -91,6 +91,21 @@ class OmniLogicConfig:
 
 
 @dataclass(frozen=True)
+class AwayConfig:
+    """Away-from-home alerts driven by a calendar's secret iCal link."""
+
+    enabled: bool = False
+    # The iCal URL is a secret (it exposes the whole calendar), so it lives in an env var.
+    ics_url_env: str = "POOLWATCH_CALENDAR_ICS"
+    # Words that mean "home" in flight titles/details: city names and airport codes.
+    home_terms: tuple[str, ...] = ()
+    # Event titles containing these also mean away (also a manual override).
+    keywords: tuple[str, ...] = ("vacation", "out of town")
+    max_trip_days: int = 14
+    refresh_minutes: int = 30
+
+
+@dataclass(frozen=True)
 class NotifyConfig:
     ntfy_topic: str | None = None
     ntfy_server: str = "https://ntfy.sh"
@@ -109,6 +124,7 @@ class Config:
     debris: DebrisConfig = field(default_factory=DebrisConfig)
     pump: PumpPolicyConfig = field(default_factory=PumpPolicyConfig)
     notify: NotifyConfig = field(default_factory=NotifyConfig)
+    away: AwayConfig = field(default_factory=AwayConfig)
     data_dir: str = "data"
     # Resolution of the frame the zones were drawn on (from the zone picker).
     zone_image_size: tuple[int, int] | None = None
@@ -142,6 +158,11 @@ def config_from_dict(raw: dict) -> Config:
     if "debris_labels" in debris_raw:
         debris_raw["debris_labels"] = tuple(debris_raw["debris_labels"])
 
+    away_raw = dict(raw.get("away", {}))
+    for key in ("home_terms", "keywords"):
+        if key in away_raw:
+            away_raw[key] = tuple(away_raw[key])
+
     pump_raw = dict(raw.get("pump", {}))
     pump_raw["no_boost_hours"] = _windows(pump_raw.get("no_boost_hours"))
 
@@ -157,6 +178,7 @@ def config_from_dict(raw: dict) -> Config:
         debris=DebrisConfig(**debris_raw),
         pump=PumpPolicyConfig(**pump_raw),
         notify=NotifyConfig(**raw.get("notify", {})),
+        away=AwayConfig(**away_raw),
         data_dir=raw.get("data_dir", "data"),
         zone_image_size=tuple(zones["image_size"]) if "image_size" in zones else None,
     )

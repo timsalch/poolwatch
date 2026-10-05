@@ -40,6 +40,16 @@ water = [[400, 300], [1500, 300], [1600, 900], [300, 900]]
 deck  = [[150, 200], [1800, 200], [1900, 1080], [50, 1080]]
 # gate = [[1700, 400], [1850, 400], [1850, 700], [1700, 700]]
 
+# Away-from-home alerts from your calendar. In Google Calendar: Settings > your
+# calendar > "Secret address in iCal format". Treat that link like a password:
+# put it in the POOLWATCH_CALENDAR_ICS environment variable, not in this file.
+# Check what poolwatch reads with `poolwatch away`.
+[away]
+enabled = false
+home_terms = ["Los Angeles", "LAX"]   # how flights home are titled: city names, airport codes
+keywords = ["vacation", "out of town"]  # an event with one of these in the title = away
+max_trip_days = 14                      # cap when no return flight is on the calendar
+
 [safety]
 person_labels = ["person"]
 min_confidence = 0.5

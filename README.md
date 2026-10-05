@@ -8,7 +8,8 @@ Workflow, and the detections drive two things:
 
 1. **Swimmer alerts.** A push notification, with the frame attached, when
    someone is in the water during quiet hours, or in the water with nobody
-   visible on the deck.
+   visible on the deck. While you're out of town (read from flights on your
+   calendar), anyone in the water is critical and anyone at the pool is flagged.
 2. **Debris-driven filter runtime.** When floating debris shows up, poolwatch
    boosts a Hayward OmniLogic variable-speed filter pump so the skimmer catches
    the debris before it sinks, then hands control back to the pump's normal
@@ -40,6 +41,7 @@ flowchart LR
 | `roboflow_client.py` | Runs your Roboflow Workflow on each frame; rescales boxes to the resolution the zones were drawn on |
 | `geometry.py` | Polygon zones with excluded areas (for example, a built-in table in the pool) |
 | `safety.py` | Swimmer alert rules and alert throttling |
+| `away.py` | Out-of-town detection from a calendar's secret iCal link (flights, or "vacation" events) |
 | `debris.py` | Debris scoring and the pump policy state machine |
 | `pump.py` | OmniLogic adapter over `python-omnilogic-local`, with dry-run mode |
 | `pipeline.py` | Ties a batch of frames to alerts, pump actions and the decision log |
@@ -103,6 +105,13 @@ export ROBOFLOW_API_KEY=...        # Windows: $env:ROBOFLOW_API_KEY = "..."
 For push alerts, install the [ntfy](https://ntfy.sh) app and set
 `notify.ntfy_topic` to a long random string.
 
+**Away mode (optional).** In Google Calendar, open your calendar's settings and
+copy the "Secret address in iCal format". Put it in the `POOLWATCH_CALENDAR_ICS`
+environment variable (it exposes your whole calendar, so never commit it), set
+`[away] enabled = true` and your `home_terms`, then run `poolwatch away` to see
+the trips it found. A trip runs from the first flight away until a flight home
+lands; an event titled "vacation" or "out of town" also counts.
+
 ## Tests
 
 ```bash
@@ -127,6 +136,7 @@ relies on. CI runs it on Linux and Windows.
 | OmniLogic connection and pump discovery | Working |
 | Pump commands | Tested against fakes only; running in dry-run |
 | Swimmer alerts | Tested against fakes only |
+| Away mode from calendar | Tested against sample calendars; not yet run on a real one |
 
 ## Caveats
 

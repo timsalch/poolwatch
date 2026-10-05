@@ -48,12 +48,14 @@ class Pipeline:
         pump: PumpController,
         notifier: Notifier,
         decision_log: DecisionLog | None = None,
+        away_source=None,
     ) -> None:
         self.config = config
         self.detector = detector
         self.pump = pump
         self.notifier = notifier
         self.log = decision_log
+        self.away_source = away_source  # anything with is_away(datetime) -> bool
         self.policy = PumpPolicy(config.debris, config.pump)
         self.throttle = AlertThrottle(config.safety.alert_cooldown_seconds)
         self._last_reading = DebrisReading(0, 0.0)
@@ -65,6 +67,12 @@ class Pipeline:
         worst: tuple[Alert, Path] | None = None
         reading = DebrisReading(0, 0.0)
         swimmers = 0
+        away = False
+        if self.away_source is not None and frames:
+            try:
+                away = self.away_source.is_away(now)
+            except Exception:
+                log.exception("away check failed; treating as home")
 
         for frame in frames:
             try:
@@ -72,7 +80,8 @@ class Pipeline:
             except Exception:
                 log.exception("detection failed for %s", frame)
                 continue
-            alert = evaluate(dets, now, cfg.safety, cfg.water_zone, cfg.deck_zone, cfg.gate_zone)
+            alert = evaluate(dets, now, cfg.safety, cfg.water_zone, cfg.deck_zone, cfg.gate_zone,
+                             away=away)
             if alert and (worst is None or alert.severity > worst[0].severity):
                 worst = (alert, frame)
             scene = summarize(dets, cfg.safety, cfg.water_zone, cfg.deck_zone, cfg.gate_zone)
@@ -101,6 +110,7 @@ class Pipeline:
                 "debris_count": result.reading.count,
                 "debris_coverage_pct": result.reading.coverage_pct,
                 "swimmers": result.swimmers,
+                "away": away,
                 "alert": asdict(result.alert) if result.alert else None,
                 "alert_sent": sent,
                 "action": action.kind.value,
