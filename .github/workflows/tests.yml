@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      # Hardware/cloud libraries are optional; the suite uses fakes for Ring and
+      # Roboflow, plus a guard test against the real OmniLogic library's API.
+      - name: Install
+        run: pip install -e ".[dev,omnilogic,roboflow]"
+      - name: Test
+        run: pytest -q

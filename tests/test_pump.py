@@ -79,7 +79,7 @@ async def test_unknown_filter_name_lists_options():
 
 
 async def test_duplicate_names_refuse_to_guess():
-    # Tim's controller: two pumps both named "Filter Pump".
+    # Real-world case: a filter pump and a water-feature pump both named "Filter Pump".
     a = FakeFilter("Filter Pump", system_id=7)
     b = FakeFilter("Filter Pump", system_id=12, min_pct=40)
     p = pump_with([a, b])
