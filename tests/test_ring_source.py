@@ -130,3 +130,20 @@ async def test_identical_snapshot_skipped(source):
 async def test_no_snapshot_anywhere_returns_none(source):
     source._camera = SnapCamera([None], stored=RuntimeError("404"))
     assert await source.snapshot() is None
+
+
+class CrashingSnapCamera(SnapCamera):
+    async def async_get_snapshot(self, **kwargs):
+        # What ring_doorbell does when Ring returns an empty timestamps list.
+        return [][0]
+
+
+async def test_library_crash_falls_back_to_stored_snapshot(source):
+    source._camera = CrashingSnapCamera([], stored=b"stored-jpg")
+    path = await source.snapshot()
+    assert path.read_bytes() == b"stored-jpg"
+
+
+async def test_library_crash_and_no_stored_snapshot_returns_none(source):
+    source._camera = CrashingSnapCamera([], stored=RuntimeError("404"))
+    assert await source.snapshot() is None
