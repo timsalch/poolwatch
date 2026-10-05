@@ -48,3 +48,14 @@ def test_filter_system_id_optional(raw):
     assert config_from_dict(raw).omnilogic.filter_system_id is None
     raw["omnilogic"]["filter_system_id"] = 12
     assert config_from_dict(raw).omnilogic.filter_system_id == 12
+
+
+def test_roboflow_parameters(raw):
+    assert config_from_dict(raw).roboflow.parameters == {}
+    raw["roboflow"]["parameters"] = {"confidence": 0.4, "class_agnostic_nms": False}
+    assert config_from_dict(raw).roboflow.parameters["confidence"] == 0.4
+
+
+def test_example_config_has_workflow_parameters():
+    cfg = load_config(Path(__file__).parent.parent / "config.example.toml")
+    assert cfg.roboflow.parameters["iou_threshold"] == 0.3
