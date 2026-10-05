@@ -19,39 +19,58 @@ async def _collect(cfg, hours: float) -> None:
     from .ring_source import RingSource
 
     ring = RingSource(cfg.ring.camera_name, cfg.ring.token_file, cfg.data_dir)
-    await ring.connect()
+    try:
+        await ring.connect()
+        await _collect_loop(cfg, ring, hours)
+    finally:
+        await ring.close()
+
+
+async def _collect_loop(cfg, ring, hours: float) -> None:
     end = datetime.now() + timedelta(hours=hours)
     next_snap = datetime.now()
     refusals = 0
     while datetime.now() < end:
-        if datetime.now() >= next_snap:
-            path = await ring.snapshot()
-            if path:
-                refusals = 0
-                log.info("snapshot: %s", path)
-            else:
-                refusals += 1
-                if refusals == 1:
-                    log.warning("No snapshot available from the camera. Check that "
-                                "Snapshot Capture is on for it in the Ring app "
-                                "(Device Settings > Snapshot Capture).")
-            next_snap = datetime.now() + timedelta(minutes=cfg.ring.snapshot_interval_minutes)
-        for frame in await ring.new_motion_frames():
-            log.info("motion frame: %s", frame)
+        try:
+            if datetime.now() >= next_snap:
+                path = await ring.snapshot()
+                if path:
+                    refusals = 0
+                    log.info("snapshot: %s", path)
+                else:
+                    refusals += 1
+                    if refusals == 1:
+                        log.warning("No snapshot available from the camera. Check that "
+                                    "Snapshot Capture is on for it in the Ring app "
+                                    "(Device Settings > Snapshot Capture).")
+                next_snap = datetime.now() + timedelta(minutes=cfg.ring.snapshot_interval_minutes)
+            for frame in await ring.new_motion_frames():
+                log.info("motion frame: %s", frame)
+        except Exception:
+            # Ring or network hiccup: log it and keep collecting.
+            log.exception("collection error; retrying next cycle")
         await asyncio.sleep(60)
 
 
 async def _run(cfg, dry_run: bool) -> None:
-    from .notify import ConsoleNotifier, NtfyNotifier
-    from .pipeline import DecisionLog, Pipeline
-    from .pump import OmniLogicPump
     from .ring_source import RingSource
-    from .roboflow_client import RoboflowWorkflowDetector
 
     tz = ZoneInfo(cfg.timezone)
     ring = RingSource(cfg.ring.camera_name, cfg.ring.token_file, cfg.data_dir)
-    await ring.connect()
-    await ring.prime()
+    try:
+        await ring.connect()
+        await ring.prime()
+        await _run_loop(cfg, ring, dry_run, tz)
+    finally:
+        await ring.close()
+
+
+async def _run_loop(cfg, ring, dry_run: bool, tz) -> None:
+    from .notify import ConsoleNotifier, NtfyNotifier
+    from .pipeline import DecisionLog, Pipeline
+    from .pump import OmniLogicPump
+    from .roboflow_client import RoboflowWorkflowDetector
+
     pump = OmniLogicPump(cfg.omnilogic.host, cfg.omnilogic.filter_name,
                          dry_run=dry_run or cfg.omnilogic.dry_run,
                          filter_system_id=cfg.omnilogic.filter_system_id)
@@ -132,6 +151,13 @@ def main(argv: list[str] | None = None) -> None:
         asyncio.run(ring_login(token_file))
         return
 
+    try:
+        _dispatch(args)
+    except KeyboardInterrupt:
+        log.info("stopped")
+
+
+def _dispatch(args) -> None:
     cfg = load_config(args.config)
     if args.cmd == "collect":
         asyncio.run(_collect(cfg, args.hours))
