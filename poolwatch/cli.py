@@ -44,7 +44,8 @@ async def _run(cfg, dry_run: bool) -> None:
     await ring.connect()
     await ring.prime()
     pump = OmniLogicPump(cfg.omnilogic.host, cfg.omnilogic.filter_name,
-                         dry_run=dry_run or cfg.omnilogic.dry_run)
+                         dry_run=dry_run or cfg.omnilogic.dry_run,
+                         filter_system_id=cfg.omnilogic.filter_system_id)
     notifier = (NtfyNotifier(cfg.notify.ntfy_topic, cfg.notify.ntfy_server)
                 if cfg.notify.ntfy_topic else ConsoleNotifier())
     pipeline = Pipeline(cfg, RoboflowWorkflowDetector(cfg.roboflow), pump, notifier,
@@ -74,8 +75,10 @@ async def _run(cfg, dry_run: bool) -> None:
 async def _pump_info(cfg) -> None:
     from .pump import OmniLogicPump
 
-    for line in await OmniLogicPump(cfg.omnilogic.host, cfg.omnilogic.filter_name).describe():
+    for line in await OmniLogicPump(cfg.omnilogic.host).describe():
         print(line)
+    print("\nTip: turn one pump on in the OmniLogic app and run this again; "
+          "the one showing on=True is that pump. Put its id in omnilogic.filter_system_id.")
 
 
 def _detect(cfg, image: str) -> None:

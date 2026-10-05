@@ -42,3 +42,9 @@ def test_example_config_loads():
     assert cfg.ring.camera_name == "Backyard"
     assert cfg.omnilogic.dry_run is True
     assert cfg.gate_zone is None
+
+
+def test_filter_system_id_optional(raw):
+    assert config_from_dict(raw).omnilogic.filter_system_id is None
+    raw["omnilogic"]["filter_system_id"] = 12
+    assert config_from_dict(raw).omnilogic.filter_system_id == 12

@@ -82,7 +82,9 @@ class RoboflowConfig:
 @dataclass(frozen=True)
 class OmniLogicConfig:
     host: str
-    filter_name: str = "Filter Pump"
+    filter_name: str | None = "Filter Pump"
+    # Preferred: the unique id shown by `poolwatch pump-info`. Overrides filter_name.
+    filter_system_id: int | None = None
     dry_run: bool = True
 
 
