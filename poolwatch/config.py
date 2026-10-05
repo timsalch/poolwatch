@@ -109,6 +109,14 @@ class AwayConfig:
 class NotifyConfig:
     ntfy_topic: str | None = None
     ntfy_server: str = "https://ntfy.sh"
+    # Email alerts over SMTP. The password lives in an environment variable.
+    email_to: tuple[str, ...] = ()
+    email_from: str | None = None          # defaults to smtp_user
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587                   # STARTTLS
+    smtp_user: str | None = None
+    smtp_password_env: str = "POOLWATCH_SMTP_PASSWORD"
+    email_min_severity: str = "WARNING"    # INFO, WARNING or CRITICAL
 
 
 @dataclass(frozen=True)
@@ -136,6 +144,20 @@ def _windows(raw: list[str] | None) -> tuple[TimeWindow, ...]:
 
 def _zone(zones: dict, name: str) -> Zone | None:
     return Zone.from_list(name, zones[name]) if name in zones else None
+
+
+def _notify(raw: dict) -> NotifyConfig:
+    raw = dict(raw)
+    to = raw.get("email_to")
+    if isinstance(to, str):
+        raw["email_to"] = (to,)
+    elif to is not None:
+        raw["email_to"] = tuple(to)
+    level = raw.get("email_min_severity", "WARNING").upper()
+    if level not in ("INFO", "WARNING", "CRITICAL"):
+        raise ValueError(f"notify.email_min_severity must be INFO, WARNING or CRITICAL, not {level!r}")
+    raw["email_min_severity"] = level
+    return NotifyConfig(**raw)
 
 
 def load_config(path: str | Path) -> Config:
@@ -177,7 +199,7 @@ def config_from_dict(raw: dict) -> Config:
         safety=SafetyConfig(**safety_raw),
         debris=DebrisConfig(**debris_raw),
         pump=PumpPolicyConfig(**pump_raw),
-        notify=NotifyConfig(**raw.get("notify", {})),
+        notify=_notify(raw.get("notify", {})),
         away=AwayConfig(**away_raw),
         data_dir=raw.get("data_dir", "data"),
         zone_image_size=tuple(zones["image_size"]) if "image_size" in zones else None,

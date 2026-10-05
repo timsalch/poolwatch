@@ -44,6 +44,7 @@ flowchart LR
 | `away.py` | Out-of-town detection from a calendar's secret iCal link (flights, or "vacation" events) |
 | `debris.py` | Debris scoring and the pump policy state machine |
 | `pump.py` | OmniLogic adapter over `python-omnilogic-local`, with dry-run mode |
+| `notify.py` | Console, ntfy push and email (SMTP) alert channels |
 | `pipeline.py` | Ties a batch of frames to alerts, pump actions and the decision log |
 | `tools/zone-picker.html` | Click-to-outline zone editor that outputs the `[zones]` config |
 
@@ -105,8 +106,14 @@ export ROBOFLOW_API_KEY=...        # Windows: $env:ROBOFLOW_API_KEY = "..."
 8. **Run:** `poolwatch run --dry-run`, review `data/decisions.jsonl` for a few
    days, then set `omnilogic.dry_run = false`.
 
-For push alerts, install the [ntfy](https://ntfy.sh) app and set
-`notify.ntfy_topic` to a long random string.
+**Alerts** go to every channel you set up under `[notify]`:
+- Push: install the [ntfy](https://ntfy.sh) app and set `ntfy_topic` to a long
+  random string.
+- Email, with the camera frame attached: set `email_to` and `smtp_user`, and put
+  the SMTP password in `POOLWATCH_SMTP_PASSWORD`. For Gmail that's an app
+  password.
+
+Run `poolwatch test-alert` to check delivery.
 
 **Away mode (optional).** In Google Calendar, open your calendar's settings and
 copy the "Secret address in iCal format". Put it in the `POOLWATCH_CALENDAR_ICS`
