@@ -22,10 +22,19 @@ async def _collect(cfg, hours: float) -> None:
     await ring.connect()
     end = datetime.now() + timedelta(hours=hours)
     next_snap = datetime.now()
+    refusals = 0
     while datetime.now() < end:
         if datetime.now() >= next_snap:
             path = await ring.snapshot()
-            log.info("snapshot: %s", path or "camera refused (battery model?)")
+            if path:
+                refusals = 0
+                log.info("snapshot: %s", path)
+            else:
+                refusals += 1
+                if refusals == 1:
+                    log.warning("Camera refused a snapshot. Battery Ring cameras need "
+                                "Snapshot Capture turned on in the Ring app "
+                                "(Device Settings > Snapshot Capture).")
             next_snap = datetime.now() + timedelta(minutes=cfg.ring.snapshot_interval_minutes)
         for frame in await ring.new_motion_frames():
             log.info("motion frame: %s", frame)
