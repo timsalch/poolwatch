@@ -74,3 +74,59 @@ async def test_prime_skips_existing_events(source):
     source._camera.event_ids.append(3)
     frames = await source.new_motion_frames()
     assert [f.name for f in frames] == ["3_01.jpg"]
+
+
+class FakeResp:
+    def __init__(self, content):
+        self.content = content
+
+
+class FakeRing:
+    def __init__(self, stored):
+        self.stored = stored
+        self.urls = []
+
+    async def async_query(self, url, **kwargs):
+        self.urls.append(url)
+        if isinstance(self.stored, Exception):
+            raise self.stored
+        return FakeResp(self.stored)
+
+
+class SnapCamera:
+    id = 4242
+
+    def __init__(self, fresh, stored=b""):
+        self.fresh = list(fresh)  # successive return values of async_get_snapshot
+        self._ring = FakeRing(stored)
+        self.snapshot_kwargs = []
+
+    async def async_get_snapshot(self, **kwargs):
+        self.snapshot_kwargs.append(kwargs)
+        return self.fresh.pop(0) if self.fresh else None
+
+
+async def test_snapshot_waits_longer_than_library_default(source):
+    source._camera = SnapCamera([b"jpg1"])
+    path = await source.snapshot()
+    assert path.read_bytes() == b"jpg1"
+    kw = source._camera.snapshot_kwargs[0]
+    assert kw["retries"] * kw["delay"] >= 15
+
+
+async def test_falls_back_to_stored_snapshot(source):
+    source._camera = SnapCamera([None], stored=b"stored-jpg")
+    path = await source.snapshot()
+    assert path.read_bytes() == b"stored-jpg"
+    assert source._camera._ring.urls == ["/clients_api/snapshots/image/4242"]
+
+
+async def test_identical_snapshot_skipped(source):
+    source._camera = SnapCamera([None, None], stored=b"same")
+    assert await source.snapshot() is not None
+    assert await source.snapshot() is None
+
+
+async def test_no_snapshot_anywhere_returns_none(source):
+    source._camera = SnapCamera([None], stored=RuntimeError("404"))
+    assert await source.snapshot() is None
