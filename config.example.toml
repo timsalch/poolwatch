@@ -1,0 +1,50 @@
+# Copy to config.toml (git-ignored) and fill in.
+timezone = "America/Los_Angeles"
+data_dir = "data"
+
+[ring]
+camera_name = "Backyard"          # exactly as named in the Ring app
+token_file = ".ring_token.json"   # created by `poolwatch ring-login`
+snapshot_interval_minutes = 15    # wired cameras only
+
+[roboflow]
+workspace = "your-workspace"
+workflow_id = "pool-monitor"
+api_url = "https://serverless.roboflow.com"   # or http://localhost:9001 for local Inference
+api_key_env = "ROBOFLOW_API_KEY"
+
+[omnilogic]
+host = "192.168.1.50"             # controller's LAN IP
+filter_name = "Filter Pump"       # run `poolwatch pump-info` to see the exact name
+dry_run = true                    # flip to false once you trust the decisions log
+
+[notify]
+# ntfy_topic = "poolwatch-some-long-random-string"
+
+# Polygons in image pixel coordinates, [x, y] points. Grab coordinates from a
+# snapshot (Roboflow's zone tool or any image editor shows pixel positions).
+[zones]
+water = [[400, 300], [1500, 300], [1600, 900], [300, 900]]
+deck  = [[150, 200], [1800, 200], [1900, 1080], [50, 1080]]
+# gate = [[1700, 400], [1850, 400], [1850, 700], [1700, 700]]
+
+[safety]
+person_labels = ["person"]
+min_confidence = 0.5
+quiet_hours = ["21:00-07:00"]
+alert_cooldown_seconds = 120
+
+[debris]
+debris_labels = ["leaf", "debris", "bug"]
+min_confidence = 0.4
+count_threshold = 5
+coverage_threshold_pct = 1.0
+consecutive_readings = 2
+
+[pump]
+boost_speed_pct = 75
+boost_minutes = 30
+max_extensions = 2
+cooldown_minutes = 60
+max_boost_minutes_per_day = 240
+no_boost_hours = ["22:00-07:00"]
