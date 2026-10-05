@@ -42,9 +42,16 @@ class OmniLogicPump:
     schedule, the same thing the Home Assistant "Restore Idle" button does.
     """
 
-    def __init__(self, host: str, filter_name: str, dry_run: bool = True) -> None:
+    def __init__(
+        self,
+        host: str,
+        filter_name: str | None = None,
+        dry_run: bool = True,
+        filter_system_id: int | None = None,
+    ) -> None:
         self.host = host
         self.filter_name = filter_name
+        self.filter_system_id = filter_system_id
         self.dry_run = dry_run
         self._omni = None
 
@@ -56,20 +63,41 @@ class OmniLogicPump:
         await self._omni.refresh(force=True)
         return self._omni
 
+    @staticmethod
+    def _iter_filters(omni):
+        """Yield (body_of_water_name, filter) for every filter pump on the controller."""
+        for bow in omni.backyard.bow.values():
+            for f in bow.filters.values():
+                yield bow.name, f
+
+    @property
+    def label(self) -> str:
+        if self.filter_system_id is not None:
+            return f"filter id {self.filter_system_id}"
+        return repr(self.filter_name)
+
     async def _filter(self):
         omni = await self._connect()
-        filters = list(omni.all_filters.values())
-        for f in filters:
-            if f.name == self.filter_name:
-                return f
-        names = ", ".join(repr(f.name) for f in filters) or "none found"
-        raise LookupError(f"No filter named {self.filter_name!r}; controller has: {names}")
+        found = list(self._iter_filters(omni))
+        if self.filter_system_id is not None:
+            matches = [f for _, f in found if f.system_id == self.filter_system_id]
+        else:
+            matches = [f for _, f in found if f.name == self.filter_name]
+        if len(matches) == 1:
+            return matches[0]
+        options = "; ".join(f"id={f.system_id} name={f.name!r} body={bow!r}" for bow, f in found)
+        if not matches:
+            raise LookupError(f"No filter pump matching {self.label}. Controller has: {options or 'none'}")
+        raise LookupError(
+            f"{len(matches)} filter pumps match {self.label}; set omnilogic.filter_system_id "
+            f"to pick one. Controller has: {options}"
+        )
 
     async def set_speed(self, speed_pct: int) -> None:
         f = await self._filter()
         speed = max(f.min_percent, min(f.max_percent, speed_pct))
         if self.dry_run:
-            log.info("[dry-run] would set %s to %s%%", self.filter_name, speed)
+            log.info("[dry-run] would set %s to %s%%", self.label, speed)
             return
         await f.set_speed(speed)
 
@@ -86,9 +114,10 @@ class OmniLogicPump:
         return f.speed if f.is_on else 0
 
     async def describe(self) -> list[str]:
-        """List filters on the controller; handy for finding filter_name."""
+        """List filter pumps with their ids and body of water; use the id in config."""
         omni = await self._connect()
         return [
-            f"{f.name}: on={f.is_on} speed={f.speed}% range={f.min_percent}-{f.max_percent}%"
-            for f in omni.all_filters.values()
+            f"id={f.system_id}  name={f.name!r}  body={bow!r}  on={f.is_on}  "
+            f"speed={f.speed}%  range={f.min_percent}-{f.max_percent}%"
+            for bow, f in self._iter_filters(omni)
         ]
