@@ -35,6 +35,14 @@ def extract_frames(clip: Path, out_dir: Path, count: int = 3) -> list[Path]:
     return sorted(out_dir.glob(f"{clip.stem}_*.jpg"))
 
 
+MAX_CLIP_ATTEMPTS = 3
+NO_RECORDINGS_HINT = (
+    "Ring isn't returning recordings for motion events. This usually means the "
+    "camera has no Ring Protect plan (Ring only stores video with a subscription), "
+    "or video recording is turned off for this camera in the Ring app."
+)
+
+
 class RingSource:
     def __init__(self, camera_name: str, token_file: str, data_dir: str) -> None:
         self.camera_name = camera_name
@@ -43,6 +51,9 @@ class RingSource:
         self._ring = None
         self._camera = None
         self._seen_events: set[int] = set()
+        self._attempts: dict[int, int] = {}
+        self._warned_no_recordings = False
+        self._consecutive_404s = 0
 
     def _save_token(self, token: dict) -> None:
         self.token_path.write_text(json.dumps(token))
@@ -86,12 +97,27 @@ class RingSource:
             if not clip.exists():
                 try:
                     await self._camera.async_recording_download(event_id, filename=str(clip))
-                except Exception as exc:  # recording may not be ready yet
-                    log.info("clip %s not ready: %s", event_id, exc)
-                    self._seen_events.discard(event_id)
+                    self._consecutive_404s = 0
+                except Exception as exc:
+                    self._record_failure(event_id, exc)
                     continue
             frames.extend(extract_frames(clip, self.data_dir / "frames"))
         return frames
+
+    def _record_failure(self, event_id: int, exc: Exception) -> None:
+        """Retry a missing clip a few times (it may still be uploading), then give up."""
+        attempts = self._attempts.get(event_id, 0) + 1
+        self._attempts[event_id] = attempts
+        if "404" in str(exc):
+            self._consecutive_404s += 1
+        if attempts < MAX_CLIP_ATTEMPTS:
+            self._seen_events.discard(event_id)  # try again next poll
+            log.debug("clip %s not ready (attempt %d): %s", event_id, attempts, exc)
+            return
+        log.debug("giving up on clip %s after %d attempts", event_id, attempts)
+        if self._consecutive_404s >= 3 and not self._warned_no_recordings:
+            log.warning(NO_RECORDINGS_HINT)
+            self._warned_no_recordings = True
 
     async def prime(self, limit: int = 10) -> None:
         """Mark existing events as seen so startup doesn't reprocess old clips."""
