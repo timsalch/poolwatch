@@ -49,6 +49,7 @@ class RingSource:
         self.camera_name = camera_name
         self.token_path = Path(token_file)
         self.data_dir = Path(data_dir)
+        self._auth = None
         self._ring = None
         self._camera = None
         self._seen_events: set[int] = set()
@@ -67,6 +68,7 @@ class RingSource:
         if not self.token_path.exists():
             raise RuntimeError("No Ring token yet. Run `poolwatch ring-login` first.")
         auth = Auth(USER_AGENT, json.loads(self.token_path.read_text()), self._save_token)
+        self._auth = auth
         self._ring = Ring(auth)
         await self._ring.async_update_data()
         cams = [d for d in self._ring.video_devices() if d.name == self.camera_name]
@@ -74,6 +76,15 @@ class RingSource:
             names = ", ".join(d.name for d in self._ring.video_devices())
             raise LookupError(f"No Ring camera named {self.camera_name!r}; found: {names}")
         self._camera = cams[0]
+
+    async def close(self) -> None:
+        """Close the Ring HTTP session (avoids 'Unclosed client session' on exit)."""
+        if self._auth is not None:
+            try:
+                await self._auth.async_close()
+            except Exception as exc:
+                log.debug("error closing Ring session: %s", exc)
+            self._auth = None
 
     async def _latest_stored_snapshot(self) -> bytes | None:
         """Download whatever snapshot Ring has stored (from Snapshot Capture), without
@@ -167,7 +178,10 @@ async def ring_login(token_file: str) -> None:
     username = input("Ring email: ")
     password = getpass("Ring password: ")
     try:
-        await auth.async_fetch_token(username, password)
-    except Requires2FAError:
-        await auth.async_fetch_token(username, password, input("2FA code: "))
+        try:
+            await auth.async_fetch_token(username, password)
+        except Requires2FAError:
+            await auth.async_fetch_token(username, password, input("2FA code: "))
+    finally:
+        await auth.async_close()
     print(f"Saved Ring token to {path}")
