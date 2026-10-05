@@ -50,6 +50,9 @@ def summarize(
     gate: Zone | None = None,
 ) -> SceneSummary:
     people = filter_labels(detections, config.person_labels, config.min_confidence)
+    # Excluded areas (like a built-in table) are for debris only. Someone on an in-pool
+    # table is surrounded by water, so for safety they count as in the pool.
+    water = water.without_holes()
     in_water, on_deck, at_gate = [], [], []
     for p in people:
         # Swimmers are mostly submerged, so the visible box center is the best anchor.
