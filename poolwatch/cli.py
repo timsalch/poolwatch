@@ -52,6 +52,20 @@ async def _collect_loop(cfg, ring, hours: float) -> None:
         await asyncio.sleep(60)
 
 
+async def _backfill(cfg, days: int, max_clips: int) -> None:
+    from .ring_source import RingSource
+
+    ring = RingSource(cfg.ring.camera_name, cfg.ring.token_file, cfg.data_dir)
+    try:
+        await ring.connect()
+        log.info("downloading motion clips from the last %d days (up to %d)...", days, max_clips)
+        clips, frames = await ring.backfill(days, max_clips=max_clips)
+        log.info("done: %d new clips, %d frames in %s", clips, frames,
+                 Path(cfg.data_dir) / "frames")
+    finally:
+        await ring.close()
+
+
 async def _run(cfg, dry_run: bool) -> None:
     from .ring_source import RingSource
 
@@ -165,6 +179,9 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("ring-login", help="one-time Ring login, saves a refresh token")
     p = sub.add_parser("collect", help="save snapshots and motion frames for labeling")
     p.add_argument("--hours", type=float, default=24)
+    p = sub.add_parser("backfill", help="download past motion clips for training data")
+    p.add_argument("--days", type=int, default=30)
+    p.add_argument("--max-clips", type=int, default=500)
     sub.add_parser("pump-info", help="list filters on the OmniLogic controller")
     sub.add_parser("away", help="show whether the calendar says you're away, and upcoming trips")
     p = sub.add_parser("detect", help="run the Workflow on one image and show results")
@@ -196,6 +213,8 @@ def _dispatch(args) -> None:
     cfg = load_config(args.config)
     if args.cmd == "collect":
         asyncio.run(_collect(cfg, args.hours))
+    elif args.cmd == "backfill":
+        asyncio.run(_backfill(cfg, args.days, args.max_clips))
     elif args.cmd == "away":
         _away_status(cfg)
     elif args.cmd == "pump-info":

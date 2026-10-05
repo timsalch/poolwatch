@@ -31,7 +31,7 @@ class FakeCamera:
 @pytest.fixture
 def source(tmp_path, monkeypatch):
     monkeypatch.setattr(ring_source, "extract_frames",
-                        lambda clip, out, count=3: [out / f"{clip.stem}_01.jpg"])
+                        lambda clip, out, count=3, every_s=8: [out / f"{clip.stem}_01.jpg"])
     src = RingSource("Backyard", str(tmp_path / "tok.json"), str(tmp_path / "data"))
     return src
 
@@ -147,3 +147,61 @@ async def test_library_crash_falls_back_to_stored_snapshot(source):
 async def test_library_crash_and_no_stored_snapshot_returns_none(source):
     source._camera = CrashingSnapCamera([], stored=RuntimeError("404"))
     assert await source.snapshot() is None
+
+
+class HistoryCamera:
+    """Paged motion history like Ring's: newest first, `older_than` continues."""
+
+    def __init__(self, events, fail_ids=()):
+        self.events = events  # list of (id, created_at), newest first
+        self.fail_ids = set(fail_ids)
+        self.pages = []
+        self.downloads = []
+
+    async def async_history(self, limit=30, kind=None, older_than=None, **kw):
+        self.pages.append(older_than)
+        start = 0
+        if older_than is not None:
+            start = [i for i, _ in self.events].index(older_than) + 1
+        return [{"id": i, "created_at": t} for i, t in self.events[start:start + limit]]
+
+    async def async_recording_download(self, event_id, filename):
+        self.downloads.append(event_id)
+        if event_id in self.fail_ids:
+            raise RuntimeError("404")
+        with open(filename, "wb") as fh:
+            fh.write(b"mp4")
+
+
+def _history(n, hours_apart=12):
+    from datetime import datetime, timedelta, timezone
+    now = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
+    return now, [(1000 - k, now - timedelta(hours=k * hours_apart)) for k in range(n)]
+
+
+async def test_backfill_pages_back_until_cutoff(source):
+    now, events = _history(250)              # 125 days of events, every 12h
+    source._camera = HistoryCamera(events)
+    clips, frames = await source.backfill(days=30, pause_s=0, now=now)
+    # 30 days at 2 per day, plus the event exactly at now.
+    assert clips == 61 and frames == 61
+    assert len(source._camera.pages) == 1    # 61 fit in the first page of 100
+
+
+async def test_backfill_spans_multiple_pages(source):
+    now, events = _history(250, hours_apart=1)
+    source._camera = HistoryCamera(events)
+    clips, _ = await source.backfill(days=7, pause_s=0, now=now)
+    assert clips == 7 * 24 + 1
+    assert source._camera.pages == [None, 901]   # second page continues after the 100th
+
+
+async def test_backfill_respects_max_and_skips_missing_and_existing(source):
+    now, events = _history(20)
+    source._camera = HistoryCamera(events, fail_ids={999})
+    (source.data_dir / "clips").mkdir(parents=True)
+    (source.data_dir / "clips" / "998.mp4").write_bytes(b"old")   # already downloaded
+    clips, frames = await source.backfill(days=30, max_clips=5, pause_s=0, now=now)
+    assert clips == 5                         # 998 reused, 999 missing; 5 new downloads
+    assert 999 in source._camera.downloads and 998 not in source._camera.downloads
+    assert frames == 6                        # reused clip's frames count too
