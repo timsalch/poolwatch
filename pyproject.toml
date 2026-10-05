@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "poolwatch"
+version = "0.1.0"
+description = "Pool monitoring with Ring snapshots, Roboflow Workflows, and Hayward OmniLogic pump control"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+ring = ["ring_doorbell>=0.9"]
+roboflow = ["inference-sdk>=0.30"]
+omnilogic = ["python-omnilogic-local>=5.0"]
+all = ["ring_doorbell>=0.9", "inference-sdk>=0.30", "python-omnilogic-local>=5.0"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+poolwatch = "poolwatch.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["poolwatch*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
