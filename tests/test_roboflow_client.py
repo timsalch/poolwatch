@@ -46,3 +46,21 @@ def test_real_sdk_client_builds_with_header_auth(monkeypatch):
     monkeypatch.setenv("ROBOFLOW_API_KEY", "test-key-not-real")
     det = RoboflowWorkflowDetector(RoboflowConfig("w", "f"))
     assert det._client is not None  # no network call happens at construction
+
+
+def test_detections_rescaled_to_zone_size():
+    result = [{"p": {"image": {"width": 640, "height": 360},
+                     "predictions": [{"x": 320, "y": 180, "width": 10, "height": 10,
+                                      "confidence": 0.9, "class": "leaf"}]}}]
+    det = RoboflowWorkflowDetector(RoboflowConfig("w", "f"), client=FakeClient(result),
+                                   reference_size=(1920, 1080))
+    (d,) = det.detect("snap.jpg")
+    assert (d.x, d.y) == (960, 540)
+
+
+def test_no_reference_size_leaves_coordinates():
+    result = [{"p": {"image": {"width": 640, "height": 360},
+                     "predictions": [{"x": 320, "y": 180, "width": 10, "height": 10,
+                                      "confidence": 0.9, "class": "leaf"}]}}]
+    (d,) = RoboflowWorkflowDetector(RoboflowConfig("w", "f"), client=FakeClient(result)).detect("s.jpg")
+    assert (d.x, d.y) == (320, 180)
