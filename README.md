@@ -34,6 +34,9 @@ The pump policy (`poolwatch/debris.py`) is pure logic with these rules:
 
 ## Setup
 
+Requires **Python 3.13**. The OmniLogic library needs 3.13 or newer, and
+Roboflow's `inference-sdk` doesn't support 3.14 yet.
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[all,dev]"
