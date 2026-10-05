@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pool Zone Picker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: tool strip on top, the frame as the working surface, zones + TOML output beside it (stacks on phones). */
+:root {
+  --bg: #eef2f4; --panel: #ffffff; --ink: #14212b; --muted: #5b6b77; --line: #d3dce2;
+  --accent: #0b7fa6;
+  --water: #0aa5c9; --exclude: #e4572e; --deck: #c9971c; --gate: #8a5cd6;
+  --code-bg: #f4f7f9;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e161c; --panel: #16222b; --ink: #e3ebf0; --muted: #91a3b0; --line: #2a3a46;
+  --accent: #39b8de; --water: #2cc3e6; --exclude: #ff7650; --deck: #e2b23c; --gate: #a982f0;
+  --code-bg: #0f1a21; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0e161c; --panel: #16222b; --ink: #e3ebf0; --muted: #91a3b0; --line: #2a3a46;
+  --accent: #39b8de; --water: #2cc3e6; --exclude: #ff7650; --deck: #e2b23c; --gate: #a982f0;
+  --code-bg: #0f1a21; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.5;
+  padding-inline: 16px; padding-block: 18px 32px }
+.wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 14px }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px }
+h1 { font-size: 1.35rem; font-weight: 600; margin: 0; text-wrap: balance; letter-spacing: -0.01em }
+header p { margin: 0; color: var(--muted); max-width: 62ch }
+
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start }
+@media (max-width: 900px) { .main { grid-template-columns: minmax(0, 1fr) } }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px }
+button, .filebtn { font: inherit; font-weight: 500; color: var(--ink); background: transparent; border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; min-height: 34px }
+button:hover, .filebtn:hover { border-color: var(--accent) }
+button:focus-visible, .filebtn:focus-within, .layer:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+button.primary, .filebtn { background: var(--accent); border-color: var(--accent); color: #fff }
+button:disabled { opacity: .45; cursor: not-allowed }
+.filebtn input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none }
+.sep { flex: 1 }
+.hint { color: var(--muted); font-size: 12.5px }
+
+.stage { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; display: grid; gap: 8px }
+.canvas-box { position: relative; line-height: 0 }
+canvas#view { width: 100%; height: auto; display: block; border-radius: 4px; cursor: crosshair; touch-action: none;
+  background: var(--code-bg) }
+canvas#view.dragging { cursor: grabbing }
+.drop { position: absolute; inset: 0; border: 2px dashed var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent);
+  display: grid; place-items: center; font: 600 1rem var(--sans); color: var(--accent); line-height: 1.4 }
+.loupe { position: absolute; top: 10px; right: 10px; width: 132px; height: 132px; border-radius: 50%;
+  border: 2px solid var(--panel); box-shadow: 0 2px 10px rgba(0,0,0,.35); pointer-events: none; background: #000 }
+.status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; font-family: var(--mono); font-size: 12px;
+  color: var(--muted); line-height: 1.4; font-variant-numeric: tabular-nums }
+.example { display: inline-block; font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--deck); border: 1px solid currentColor; border-radius: 4px; padding: 1px 6px }
+
+aside { display: grid; gap: 14px; min-width: 0 }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px; min-width: 0 }
+.card h2 { margin: 0; font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted) }
+.layers { display: grid; gap: 6px }
+.layer { display: grid; grid-template-columns: 12px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 6px; cursor: pointer; background: transparent; text-align: left; width: 100%; min-height: 0 }
+.layer[aria-pressed="true"] { border-color: var(--c); box-shadow: inset 3px 0 0 var(--c); background: color-mix(in srgb, var(--c) 8%, transparent) }
+.swatch { width: 12px; height: 12px; border-radius: 3px; background: var(--c) }
+.layer .name { font-weight: 500 }
+.layer .sub { display: block; font-size: 12px; color: var(--muted); font-weight: 400 }
+.layer .count { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums }
+.row { display: flex; flex-wrap: wrap; gap: 6px }
+.warn { color: var(--exclude); font-size: 12.5px; margin: 0 }
+.ok { color: var(--muted); font-size: 12.5px; margin: 0 }
+pre { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-family: var(--mono);
+  font-size: 12px; line-height: 1.55; overflow-x: auto; white-space: pre; color: var(--ink); max-height: 340px }
+ol.steps { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; color: var(--ink) }
+ol.steps li::marker { color: var(--muted) }
+kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px }
+@media (prefers-reduced-motion: no-preference) { button, .layer { transition: border-color .12s, background-color .12s } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Pool Zone Picker</h1>
+    <p>Open a frame from <code>data\frames</code>, click the corners of each area, then paste the result into <code>config.toml</code>. The image stays in your browser.</p>
+  </header>
+
+  <div class="toolbar">
+    <label class="filebtn" for="file">Open frame…<input id="file" type="file" accept="image/*"></label>
+    <button id="undo" type="button" title="Remove the last point (Ctrl+Z)">Undo point</button>
+    <button id="clearLayer" type="button">Clear this area</button>
+    <span class="sep"></span>
+    <span class="hint">Click to add a point · drag a point to move it · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo</span>
+  </div>
+
+  <div class="main">
+    <div class="stage">
+      <div class="canvas-box">
+        <canvas id="view" width="1920" height="1080" aria-label="Camera frame with zone outlines"></canvas>
+        <canvas id="loupe" class="loupe" width="132" height="132" hidden></canvas>
+        <div id="drop" class="drop" hidden>Drop the frame here</div>
+      </div>
+      <div class="status">
+        <span id="imgInfo"><span class="example">Example</span> sample pool drawing · open your own frame to start</span>
+        <span id="cursor">x —, y —</span>
+      </div>
+    </div>
+
+    <aside>
+      <div class="card">
+        <h2>Areas</h2>
+        <div class="layers" id="layers"></div>
+        <div class="row">
+          <button id="addExclude" type="button">+ Another excluded area</button>
+        </div>
+        <p id="check" class="ok"></p>
+      </div>
+
+      <div class="card">
+        <h2>Paste into config.toml</h2>
+        <pre id="out" aria-live="polite"></pre>
+        <div class="row">
+          <button id="copy" class="primary" type="button">Copy</button>
+          <span id="copied" class="hint" role="status"></span>
+        </div>
+        <p class="hint" style="margin:0">Replaces the whole <code>[zones]</code> section. The <code>image_size</code> line lets poolwatch line up zones with frames of a different resolution.</p>
+      </div>
+
+      <div class="card">
+        <h2>Tips</h2>
+        <ol class="steps">
+          <li><b>Water</b>: go around the waterline, including the water around the table. Ten points is plenty.</li>
+          <li><b>Excluded (table)</b>: outline just the table top. Debris on it is ignored. Swimmer alerts still treat the table as part of the pool.</li>
+          <li><b>Deck</b>: the walkable area around the pool, where a watching adult would stand.</li>
+          <li><b>Gate</b> is optional.</li>
+        </ol>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+  const view = document.getElementById('view');
+  const ctx = view.getContext('2d');
+  const loupe = document.getElementById('loupe');
+  const lctx = loupe.getContext('2d');
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  // Layer model. Exclusions are a list of polygons; others are single polygons.
+  const KINDS = {
+    water:   { label: 'Water',            sub: 'The pool surface',              color: '--water' },
+    exclude: { label: 'Excluded',         sub: 'Built-in table, steps, etc.',   color: '--exclude' },
+    deck:    { label: 'Deck',             sub: 'Where a supervising adult stands', color: '--deck' },
+    gate:    { label: 'Gate',             sub: 'Optional',                      color: '--gate' },
+  };
+  let polys = [];      // {id, kind, points:[[x,y],...]}
+  let active = null;   // poly id
+  let nextId = 1;
+  let image = null;    // HTMLImageElement or null (sample)
+  let isSample = true;
+  let drag = null;     // {poly, idx}
+  let hover = null;    // [x,y] in image px
+
+  const newPoly = kind => { const p = { id: nextId++, kind, points: [] }; polys.push(p); return p; };
+
+  function resetPolys(withSample) {
+    polys = []; nextId = 1;
+    const w = newPoly('water'), e = newPoly('exclude'), d = newPoly('deck'); newPoly('gate');
+    if (withSample) {
+      w.points = [[420,250],[1380,230],[1520,300],[1560,520],[1500,820],[1180,900],[700,905],[430,860],[350,640],[360,380]];
+      e.points = [[1300,270],[1460,290],[1470,420],[1320,410]];
+      d.points = [[200,120],[1720,110],[1790,980],[150,1000]];
+    }
+    active = w.id;
+  }
+
+  // ---- drawing -------------------------------------------------------------
+  function drawSample() {
+    const W = view.width, H = view.height;
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#9aa38f'); g.addColorStop(1, '#7c856f');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);                       // lawn
+    ctx.fillStyle = '#d9cfb8'; roundRect(230, 140, 1520, 840, 60); ctx.fill(); // deck
+    const wg = ctx.createLinearGradient(400, 240, 1500, 900);
+    wg.addColorStop(0, '#5cc6dd'); wg.addColorStop(1, '#1f8fb3');
+    ctx.fillStyle = wg;
+    ctx.beginPath();
+    const water = [[420,250],[1380,230],[1520,300],[1560,520],[1500,820],[1180,900],[700,905],[430,860],[350,640],[360,380]];
+    water.forEach(([x,y],i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y)); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#e8e2d2'; ctx.beginPath();                        // built-in table
+    [[1300,270],[1460,290],[1470,420],[1320,410]].forEach(([x,y],i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y));
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.18)';
+    for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.ellipse(600 + i*95, 420 + (i%3)*150, 70, 10, 0.2, 0, Math.PI*2); ctx.fill(); }
+    ctx.fillStyle = '#5b7a3a'; [[700,560],[980,480],[1120,690]].forEach(([x,y]) => {   // a few leaves
+      ctx.beginPath(); ctx.ellipse(x, y, 16, 8, 0.6, 0, Math.PI*2); ctx.fill(); });
+  }
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x+r, y); ctx.arcTo(x+w, y, x+w, y+h, r); ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r); ctx.arcTo(x, y, x+w, y, r); ctx.closePath();
+  }
+
+  function scaleFactor() { return view.width / view.getBoundingClientRect().width || 1; }
+
+  function draw() {
+    ctx.clearRect(0, 0, view.width, view.height);
+    if (image) ctx.drawImage(image, 0, 0); else drawSample();
+    const s = scaleFactor();
+    const order = ['deck', 'gate', 'water', 'exclude'];
+    for (const kind of order) for (const p of polys.filter(q => q.kind === kind)) drawPoly(p, s);
+    drawLoupe();
+  }
+
+  function drawPoly(p, s) {
+    if (!p.points.length) return;
+    const col = css(KINDS[p.kind].color);
+    const isActive = p.id === active;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    p.points.forEach(([x,y],i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y));
+    if (p.points.length >= 3) {
+      ctx.closePath();
+      ctx.fillStyle = hexA(col, p.kind === 'exclude' ? 0.38 : isActive ? 0.24 : 0.14);
+      ctx.fill();
+    }
+    ctx.lineWidth = (isActive ? 3 : 2) * s;
+    ctx.strokeStyle = col;
+    if (p.kind === 'exclude') ctx.setLineDash([10*s, 6*s]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Preview edge to the cursor for the active polygon.
+    if (isActive && hover && !drag && p.points.length) {
+      const last = p.points[p.points.length - 1];
+      ctx.beginPath(); ctx.moveTo(last[0], last[1]); ctx.lineTo(hover[0], hover[1]);
+      if (p.points.length >= 2) ctx.lineTo(p.points[0][0], p.points[0][1]);
+      ctx.strokeStyle = hexA(col, 0.6); ctx.lineWidth = 1.5 * s; ctx.setLineDash([6*s, 6*s]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // Handles.
+    p.points.forEach(([x,y], i) => {
+      ctx.beginPath(); ctx.arc(x, y, (isActive ? 7 : 5) * s, 0, Math.PI*2);
+      ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2.5 * s; ctx.strokeStyle = col; ctx.stroke();
+      if (isActive) {
+        ctx.fillStyle = col; ctx.font = `600 ${12*s}px ${css('--sans')}`;
+        ctx.fillText(String(i + 1), x + 9*s, y - 9*s);
+      }
+    });
+    ctx.restore();
+  }
+
+  function hexA(hex, a) {
+    const m = hex.replace('#','');
+    const n = parseInt(m.length === 3 ? m.split('').map(c => c + c).join('') : m, 16);
+    return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+  }
+
+  function drawLoupe() {
+    if (!hover) { loupe.hidden = true; return; }
+    loupe.hidden = false;
+    const zoom = 4, size = loupe.width, src = size / zoom;
+    lctx.imageSmoothingEnabled = false;
+    lctx.clearRect(0, 0, size, size);
+    lctx.save();
+    lctx.beginPath(); lctx.arc(size/2, size/2, size/2, 0, Math.PI*2); lctx.clip();
+    lctx.drawImage(view, hover[0] - src/2, hover[1] - src/2, src, src, 0, 0, size, size);
+    lctx.strokeStyle = '#fff'; lctx.lineWidth = 1;
+    lctx.beginPath(); lctx.moveTo(size/2, size/2 - 10); lctx.lineTo(size/2, size/2 + 10);
+    lctx.moveTo(size/2 - 10, size/2); lctx.lineTo(size/2 + 10, size/2); lctx.stroke();
+    lctx.restore();
+    // Keep the loupe out from under the cursor.
+    const r = view.getBoundingClientRect();
+    const onRight = hover[0] / view.width > 0.75 && hover[1] / view.height < 0.35;
+    loupe.style.right = onRight ? 'auto' : '10px';
+    loupe.style.left = onRight ? '10px' : 'auto';
+  }
+
+  // ---- interaction ---------------------------------------------------------
+  function toImage(ev) {
+    const r = view.getBoundingClientRect();
+    const x = (ev.clientX - r.left) * (view.width / r.width);
+    const y = (ev.clientY - r.top) * (view.height / r.height);
+    return [Math.max(0, Math.min(view.width - 1, Math.round(x))), Math.max(0, Math.min(view.height - 1, Math.round(y)))];
+  }
+  function hit(pt) {
+    const tol = 12 * scaleFactor();
+    const ordered = [...polys].sort((a, b) => (b.id === active) - (a.id === active));
+    for (const p of ordered) for (let i = 0; i < p.points.length; i++) {
+      const [x, y] = p.points[i];
+      if (Math.hypot(x - pt[0], y - pt[1]) <= tol) return { poly: p, idx: i };
+    }
+    return null;
+  }
+  const activePoly = () => polys.find(p => p.id === active);
+
+  view.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0) return;
+    const pt = toImage(ev);
+    const h = hit(pt);
+    if (h) { drag = h; active = h.poly.id; view.classList.add('dragging'); view.setPointerCapture(ev.pointerId); }
+    else { activePoly().points.push(pt); update(); }
+    draw();
+  });
+  view.addEventListener('pointermove', ev => {
+    hover = toImage(ev);
+    document.getElementById('cursor').textContent = `x ${hover[0]}, y ${hover[1]}`;
+    if (drag) { drag.poly.points[drag.idx] = hover; update(); }
+    draw();
+  });
+  const endDrag = () => { if (drag) { drag = null; view.classList.remove('dragging'); update(); draw(); } };
+  view.addEventListener('pointerup', endDrag);
+  view.addEventListener('pointercancel', endDrag);
+  view.addEventListener('pointerleave', () => { if (!drag) { hover = null; draw(); } });
+  view.addEventListener('contextmenu', ev => {   // right-click a point to delete it
+    ev.preventDefault();
+    const h = hit(toImage(ev));
+    if (h) { h.poly.points.splice(h.idx, 1); active = h.poly.id; update(); draw(); }
+  });
+
+  function undo() { const p = activePoly(); if (p && p.points.length) { p.points.pop(); update(); draw(); } }
+  document.getElementById('undo').addEventListener('click', undo);
+  document.addEventListener('keydown', ev => {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') { ev.preventDefault(); undo(); }
+  });
+  document.getElementById('clearLayer').addEventListener('click', () => { activePoly().points = []; update(); draw(); });
+  document.getElementById('addExclude').addEventListener('click', () => {
+    const empty = polys.find(p => p.kind === 'exclude' && p.points.length === 0);
+    active = (empty || newPoly('exclude')).id; update(); draw();
+  });
+
+  // ---- image loading -------------------------------------------------------
+  function loadFile(file) {
+    if (!file || !file.type.startsWith('image/')) { setInfo('That file is not an image. Pick a .jpg from data\\frames.'); return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      image = img; isSample = false;
+      view.width = img.naturalWidth; view.height = img.naturalHeight;
+      resetPolys(false);
+      setInfo(`${file.name} · ${img.naturalWidth} × ${img.naturalHeight}px`);
+      update(); draw();
+    };
+    img.onerror = () => setInfo('Could not read that image. Try another frame.');
+    img.src = url;
+  }
+  function setInfo(t) { document.getElementById('imgInfo').textContent = t; }
+  document.getElementById('file').addEventListener('change', ev => loadFile(ev.target.files[0]));
+  const drop = document.getElementById('drop');
+  ['dragenter', 'dragover'].forEach(t => document.addEventListener(t, ev => { ev.preventDefault(); drop.hidden = false; }));
+  ['dragleave', 'drop'].forEach(t => document.addEventListener(t, ev => {
+    ev.preventDefault();
+    if (t === 'dragleave' && ev.relatedTarget) return;
+    drop.hidden = true;
+    if (t === 'drop' && ev.dataTransfer.files[0]) loadFile(ev.dataTransfer.files[0]);
+  }));
+
+  // ---- side panel + output -------------------------------------------------
+  function inside(pt, pts) {
+    let ins = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i], [xj, yj] = pts[j];
+      if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) ins = !ins;
+    }
+    return ins;
+  }
+
+  function renderLayers() {
+    const box = document.getElementById('layers');
+    box.textContent = '';
+    let exN = 0;
+    for (const p of polys) {
+      const k = KINDS[p.kind];
+      if (p.kind === 'exclude') exN++;
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'layer';
+      btn.style.setProperty('--c', `var(${k.color})`);
+      btn.setAttribute('aria-pressed', String(p.id === active));
+      const name = p.kind === 'exclude' && polys.filter(q => q.kind === 'exclude').length > 1 ? `${k.label} ${exN}` : k.label;
+      btn.innerHTML = `<span class="swatch"></span><span><span class="name"></span><span class="sub"></span></span><span class="count"></span>`;
+      btn.querySelector('.name').textContent = name;
+      btn.querySelector('.sub').textContent = k.sub;
+      btn.querySelector('.count').textContent = `${p.points.length} pt${p.points.length === 1 ? '' : 's'}`;
+      btn.addEventListener('click', () => { active = p.id; update(); draw(); });
+      box.appendChild(btn);
+    }
+  }
+
+  const fmt = pts => '[' + pts.map(([x, y]) => `[${x}, ${y}]`).join(', ') + ']';
+
+  function toml() {
+    const one = k => polys.find(p => p.kind === k && p.points.length >= 3);
+    const water = one('water'), deck = one('deck'), gate = one('gate');
+    const ex = polys.filter(p => p.kind === 'exclude' && p.points.length >= 3);
+    const lines = ['[zones]', `image_size = [${view.width}, ${view.height}]`];
+    lines.push(water ? `water = ${fmt(water.points)}` : '# water = (add at least 3 points)');
+    if (ex.length) lines.push(`water_exclude = [${ex.map(p => fmt(p.points)).join(', ')}]`);
+    if (deck) lines.push(`deck = ${fmt(deck.points)}`);
+    if (gate) lines.push(`gate = ${fmt(gate.points)}`);
+    return lines.join('\n');
+  }
+
+  function check() {
+    const el = document.getElementById('check');
+    const water = polys.find(p => p.kind === 'water');
+    const msgs = [];
+    if (!water || water.points.length < 3) msgs.push('Water needs at least 3 points.');
+    else for (const p of polys.filter(q => q.kind === 'exclude' && q.points.length >= 3))
+      if (p.points.some(pt => !inside(pt, water.points))) { msgs.push('An excluded area reaches outside the water outline. Keep it inside the water.'); break; }
+    const partial = polys.filter(p => p.points.length > 0 && p.points.length < 3);
+    if (partial.length) msgs.push('Areas with fewer than 3 points are left out of the output.');
+    el.className = msgs.length ? 'warn' : 'ok';
+    el.textContent = msgs.length ? msgs.join(' ') : (isSample ? 'Showing an example drawing. Open your own frame to start.' : 'Looks good.');
+  }
+
+  function update() {
+    renderLayers();
+    document.getElementById('out').textContent = toml();
+    check();
+  }
+
+  document.getElementById('copy').addEventListener('click', () => {
+    const text = toml(), note = document.getElementById('copied');
+    const fallback = () => {
+      const r = document.createRange(); r.selectNodeContents(document.getElementById('out'));
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      note.textContent = 'Selected. Press Ctrl+C to copy.';
+    };
+    try {
+      navigator.clipboard.writeText(text).then(() => { note.textContent = 'Copied'; setTimeout(() => note.textContent = '', 2000); }, fallback);
+    } catch { fallback(); }
+  });
+
+  window.addEventListener('resize', draw);
+  const mq = matchMedia('(prefers-color-scheme: dark)');
+  mq.addEventListener?.('change', draw);
+  new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  resetPolys(true);
+  update();
+  draw();
+})();
+</script>
+</body>
+</html>
