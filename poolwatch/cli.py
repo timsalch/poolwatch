@@ -76,7 +76,7 @@ async def _run_loop(cfg, ring, dry_run: bool, tz) -> None:
                          filter_system_id=cfg.omnilogic.filter_system_id)
     notifier = (NtfyNotifier(cfg.notify.ntfy_topic, cfg.notify.ntfy_server)
                 if cfg.notify.ntfy_topic else ConsoleNotifier())
-    pipeline = Pipeline(cfg, RoboflowWorkflowDetector(cfg.roboflow), pump, notifier,
+    pipeline = Pipeline(cfg, RoboflowWorkflowDetector(cfg.roboflow, reference_size=cfg.zone_image_size), pump, notifier,
                         DecisionLog(Path(cfg.data_dir) / "decisions.jsonl"))
 
     next_snap = datetime.now(tz)
@@ -114,7 +114,7 @@ def _detect(cfg, image: str) -> None:
     from .debris import score_debris
     from .safety import evaluate
 
-    dets = RoboflowWorkflowDetector(cfg.roboflow).detect(image)
+    dets = RoboflowWorkflowDetector(cfg.roboflow, reference_size=cfg.zone_image_size).detect(image)
     for d in dets:
         print(f"{d.label:10s} {d.confidence:.2f} at ({d.x:.0f},{d.y:.0f}) "
               f"in_water={d.in_zone(cfg.water_zone)}")

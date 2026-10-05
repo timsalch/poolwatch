@@ -76,6 +76,38 @@ def parse_workflow_output(result: Any) -> list[Detection]:
     return detections
 
 
+def workflow_image_size(result: Any) -> tuple[int, int] | None:
+    """Find the input image's (width, height) in a Workflow result, if reported."""
+    if isinstance(result, dict):
+        img = result.get("image")
+        if isinstance(img, dict) and "width" in img and "height" in img:
+            return int(img["width"]), int(img["height"])
+        values = result.values()
+    elif isinstance(result, list):
+        values = result
+    else:
+        return None
+    for value in values:
+        found = workflow_image_size(value)
+        if found:
+            return found
+    return None
+
+
+def rescale(
+    detections: list[Detection], frame_size: tuple[int, int], target_size: tuple[int, int]
+) -> list[Detection]:
+    """Map boxes from the frame's resolution to the resolution the zones were drawn on."""
+    (fw, fh), (tw, th) = frame_size, target_size
+    if (fw, fh) == (tw, th) or not fw or not fh:
+        return detections
+    sx, sy = tw / fw, th / fh
+    return [
+        Detection(d.label, d.confidence, d.x * sx, d.y * sy, d.width * sx, d.height * sy)
+        for d in detections
+    ]
+
+
 def filter_labels(
     detections: Iterable[Detection], labels: Iterable[str], min_confidence: float
 ) -> list[Detection]:

@@ -32,6 +32,8 @@ dry_run = true                    # flip to false once you trust the decisions l
 # Polygons in image pixel coordinates, [x, y] points. Grab coordinates from a
 # snapshot (Roboflow's zone tool or any image editor shows pixel positions).
 [zones]
+# Easiest: use the Pool Zone Picker page and paste its output over this section.
+image_size = [1920, 1080]         # resolution of the frame the zones were drawn on
 water = [[400, 300], [1500, 300], [1600, 900], [300, 900]]
 # Areas inside the water to ignore, e.g. a built-in table. Any number of polygons.
 # water_exclude = [[[1350, 320], [1480, 320], [1480, 420], [1350, 420]]]

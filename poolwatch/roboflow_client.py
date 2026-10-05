@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .config import RoboflowConfig
-from .detections import Detection, parse_workflow_output
+from .detections import Detection, parse_workflow_output, rescale, workflow_image_size
 
 
 class Detector(Protocol):
@@ -22,8 +22,16 @@ class RoboflowWorkflowDetector:
     Point api_url at http://localhost:9001 to run against `inference server start`.
     """
 
-    def __init__(self, config: RoboflowConfig, client=None) -> None:
+    def __init__(
+        self,
+        config: RoboflowConfig,
+        client=None,
+        reference_size: tuple[int, int] | None = None,
+    ) -> None:
+        """reference_size: the (width, height) the zones were drawn on. Detections from
+        frames of another resolution are rescaled to it."""
         self._config = config
+        self._reference_size = reference_size
         self._client = client if client is not None else self._make_client(config)
 
     @staticmethod
@@ -51,4 +59,9 @@ class RoboflowWorkflowDetector:
             parameters=dict(self._config.parameters) or None,
             use_cache=True,
         )
-        return parse_workflow_output(result)
+        detections = parse_workflow_output(result)
+        if self._reference_size:
+            frame_size = workflow_image_size(result)
+            if frame_size:
+                detections = rescale(detections, frame_size, self._reference_size)
+        return detections
