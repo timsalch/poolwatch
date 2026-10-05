@@ -40,3 +40,18 @@ def test_filter_labels_case_and_confidence():
     dets = [Detection("person", 0.9, 0, 0, 1, 1), Detection("person", 0.3, 0, 0, 1, 1),
             Detection("leaf", 0.9, 0, 0, 1, 1)]
     assert len(filter_labels(dets, ["Person"], 0.5)) == 1
+
+
+def test_workflow_image_size_found():
+    from poolwatch.detections import workflow_image_size
+    result = [{"out": {"image": {"width": 640, "height": 360}, "predictions": []}}]
+    assert workflow_image_size(result) == (640, 360)
+    assert workflow_image_size([{"x": 1}]) is None
+
+
+def test_rescale_snapshot_to_zone_resolution():
+    from poolwatch.detections import rescale
+    d = Detection("leaf", 0.9, 320, 180, 10, 20)
+    (r,) = rescale([d], (640, 360), (1920, 1080))
+    assert (r.x, r.y, r.width, r.height) == (960, 540, 30, 60)
+    assert rescale([d], (1920, 1080), (1920, 1080)) == [d]

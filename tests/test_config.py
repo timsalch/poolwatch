@@ -67,3 +67,27 @@ def test_water_exclude_from_config(raw):
     assert not cfg.water_zone.contains((130, 130))
     assert cfg.water_zone.contains((180, 180))
     assert cfg.water_zone.area() == 10_000 - 400
+
+
+def test_zone_image_size(raw):
+    assert config_from_dict(raw).zone_image_size is None
+    raw["zones"]["image_size"] = [1920, 1080]
+    assert config_from_dict(raw).zone_image_size == (1920, 1080)
+
+
+def test_zone_picker_output_loads(raw, tmp_path):
+    """Exactly the [zones] block the zone picker page produces."""
+    import tomllib
+    picker = """[zones]
+image_size = [1920, 1080]
+water = [[420, 250], [1380, 230], [1520, 300], [1560, 520], [1500, 820], [1180, 900], [700, 905], [430, 860], [350, 640], [360, 380]]
+water_exclude = [[[1300, 270], [1460, 290], [1470, 420], [1320, 410]]]
+deck = [[200, 120], [1720, 110], [1790, 980], [150, 1000]]
+"""
+    raw["zones"] = tomllib.loads(picker)["zones"]
+    cfg = config_from_dict(raw)
+    assert cfg.zone_image_size == (1920, 1080)
+    assert len(cfg.water_zone.points) == 10 and len(cfg.water_zone.holes) == 1
+    assert not cfg.water_zone.contains((1390, 350))      # on the table
+    assert cfg.water_zone.contains((1500, 450))          # water beside the table
+    assert cfg.gate_zone is None

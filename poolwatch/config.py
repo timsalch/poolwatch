@@ -110,6 +110,8 @@ class Config:
     pump: PumpPolicyConfig = field(default_factory=PumpPolicyConfig)
     notify: NotifyConfig = field(default_factory=NotifyConfig)
     data_dir: str = "data"
+    # Resolution of the frame the zones were drawn on (from the zone picker).
+    zone_image_size: tuple[int, int] | None = None
 
 
 def _windows(raw: list[str] | None) -> tuple[TimeWindow, ...]:
@@ -156,4 +158,5 @@ def config_from_dict(raw: dict) -> Config:
         pump=PumpPolicyConfig(**pump_raw),
         notify=NotifyConfig(**raw.get("notify", {})),
         data_dir=raw.get("data_dir", "data"),
+        zone_image_size=tuple(zones["image_size"]) if "image_size" in zones else None,
     )
