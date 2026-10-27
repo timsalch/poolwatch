@@ -47,7 +47,8 @@ class DebrisConfig:
     debris_labels: tuple[str, ...] = ("leaf", "debris", "bug")
     min_confidence: float = 0.4
     # Boost when either threshold is met.
-    count_threshold: int = 5
+    # Any confident debris on the water counts (raise for a pool that always has a leaf or two).
+    count_threshold: int = 1
     coverage_threshold_pct: float = 1.0
     # Require N consecutive high readings before boosting (filters out glare flukes).
     consecutive_readings: int = 2
@@ -55,10 +56,12 @@ class DebrisConfig:
 
 @dataclass(frozen=True)
 class PumpPolicyConfig:
-    boost_speed_pct: int = 75
-    boost_minutes: int = 30
+    # Debris confirmed in N consecutive images: run at 90% for 15 min, then retest.
+    # Still dirty at the retest: extend another boost_minutes (up to max_extensions).
+    boost_speed_pct: int = 90
+    boost_minutes: int = 15
     max_extensions: int = 2
-    cooldown_minutes: int = 60
+    cooldown_minutes: int = 15
     max_boost_minutes_per_day: int = 240
     # No boosting in these windows (noise, energy rates). Active boosts are ended.
     no_boost_hours: tuple[TimeWindow, ...] = ()

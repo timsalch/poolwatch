@@ -22,6 +22,9 @@ poolwatch = "poolwatch.cli:main"
 [tool.setuptools.packages.find]
 include = ["poolwatch*"]
 
+[tool.setuptools.package-data]
+poolwatch = ["dashboard.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
