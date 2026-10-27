@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>poolwatch</title>
+<style>
+  :root {
+    --bg: #f3f6f8; --panel: #ffffff; --ink: #0f1d26; --muted: #5b6b76; --line: #dde5ea;
+    --water: #0e9fb8; --debris: #e8890c; --person: #3d7bf2; --other: #8a96a0;
+    --ok: #16a26b; --watch: #e8890c; --action: #0e9fb8; --active: #3d7bf2;
+    --neutral: #8a96a0; --warn: #d9483b;
+    --shadow: 0 1px 2px rgba(15,29,38,.06), 0 4px 16px rgba(15,29,38,.05);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b141a; --panel: #121e26; --ink: #e6eef2; --muted: #8fa1ad; --line: #22323c;
+      --water: #2cc4dc; --debris: #f5a524; --person: #6c9cff; --other: #7d8b95;
+      --ok: #2fc184; --watch: #f5a524; --action: #2cc4dc; --active: #6c9cff;
+      --neutral: #7d8b95; --warn: #f06b5e;
+      --shadow: none; color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: inherit; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 18px 20px 40px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+  .logo { font-weight: 700; font-size: 20px; letter-spacing: -.01em; text-decoration: none; }
+  .logo span { color: var(--water); }
+  .chip { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+          padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .chip.live { color: var(--ok); border-color: currentColor; }
+  .chip.dry-run { color: var(--watch); border-color: currentColor; }
+  .chip.simulated { color: var(--active); border-color: currentColor; }
+  .spacer { flex: 1; }
+  .clock { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 14px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block;
+         margin-right: 6px; vertical-align: 1px; }
+  .dot.stale { background: var(--warn); }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 18px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+          box-shadow: var(--shadow); }
+  .pad { padding: 16px 18px; }
+  .stack { display: flex; flex-direction: column; gap: 18px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+       margin: 0 0 10px; font-weight: 600; }
+
+  .frame { position: relative; border-radius: 14px 14px 0 0; overflow: hidden; background: #000;
+           line-height: 0; }
+  .frame img { width: 100%; height: auto; display: block; }
+  .frame svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .frame .empty { line-height: 1.4; color: #9fb0bb; padding: 120px 20px; text-align: center; }
+  .caption { display: flex; gap: 14px; align-items: center; padding: 12px 18px; flex-wrap: wrap;
+             font-size: 14px; color: var(--muted); }
+  .caption b { color: var(--ink); font-weight: 600; }
+  .legend { display: flex; gap: 12px; margin-left: auto; font-size: 13px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px;
+              vertical-align: -1px; }
+
+  .pump-state { font-size: 30px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+  .pump-state small { font-size: 15px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .pump-state.boosting { color: var(--active); }
+  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 12px 0 6px; }
+  .bar > div { height: 100%; background: var(--active); border-radius: 99px; transition: width .4s; }
+  .sub { color: var(--muted); font-size: 13.5px; }
+  .kv { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; margin-top: 14px;
+        padding-top: 14px; border-top: 1px solid var(--line); font-size: 14px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; text-align: right; font-weight: 600;
+        font-variant-numeric: tabular-nums; }
+  .pips { display: inline-flex; gap: 4px; vertical-align: middle; }
+  .pips i { width: 14px; height: 14px; border-radius: 4px; border: 2px solid var(--debris); }
+  .pips i.on { background: var(--debris); }
+
+  .decision { border-left: 4px solid var(--tone, var(--neutral)); }
+  .decision .head { font-weight: 650; font-size: 17px; margin: 0 0 6px; }
+  .decision .detail { color: var(--muted); margin: 0; }
+  .decision .when { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+
+  .timeline { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .tl { text-decoration: none; display: block; overflow: hidden; border-radius: 12px;
+        border: 1px solid var(--line); background: var(--panel); transition: transform .12s; }
+  .tl:hover { transform: translateY(-2px); }
+  .tl .thumb { aspect-ratio: 16/9; background: #000 center/cover no-repeat; position: relative; }
+  .tl .thumb.timer-img { filter: grayscale(.7) brightness(.8); }
+  .tl .badge { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,.65); color: #fff;
+               font-size: 11.5px; padding: 1px 7px; border-radius: 99px; }
+  .tl .txt { padding: 8px 10px 10px; border-top: 3px solid var(--tone, var(--neutral)); }
+  .tl .t { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tl .h { font-size: 13px; font-weight: 600; line-height: 1.3; margin-top: 2px;
+           display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 4px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase;
+       letter-spacing: .05em; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .tag { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 99px; color: #fff; }
+  .nav { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .btn { text-decoration: none; padding: 6px 12px; border-radius: 9px; border: 1px solid var(--line);
+         background: var(--panel); font-size: 14px; }
+  .btn[aria-disabled="true"] { opacity: .4; pointer-events: none; }
+  .muted { color: var(--muted); }
+  .section { margin-top: 26px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="logo" href="#/">pool<span>watch</span></a>
+    <span id="mode" class="chip">…</span>
+    <span class="spacer"></span>
+    <span class="clock"><span id="conn" class="dot"></span><span id="clock">connecting…</span></span>
+  </header>
+  <main id="app"></main>
+</div>
+
+<script>
+const $ = (sel, el = document) => el.querySelector(sel);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const imgUrl = p => "/image?p=" + encodeURIComponent(p);
+const toneVar = t => `var(--${["ok","watch","action","active","neutral","warn"].includes(t) ? t : "neutral"})`;
+const time = iso => iso ? new Date(iso).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}) : "—";
+const pct = v => (v < 0.1 && v > 0 ? "<0.1" : (Math.round(v * 10) / 10)) + "% of surface";
+const KIND_COLOR = {debris: "var(--debris)", person: "var(--person)", other: "var(--other)"};
+
+async function getJSON(url) {
+  const r = await fetch(url, {cache: "no-store"});
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+// ---- image + labels overlay -------------------------------------------------
+function frameView(path, frame, state) {
+  if (!path) return `<div class="frame"><div class="empty">No images processed yet.<br>
+    Start <code>poolwatch watch</code> or <code>poolwatch run</code>.</div></div>`;
+  const dets = frame?.detections || [];
+  return `<div class="frame" data-dets='${esc(JSON.stringify(dets))}'
+              data-zone='${esc(JSON.stringify(state?.water_zone || null))}'
+              data-size='${esc(JSON.stringify(state?.coord_size || null))}'>
+    <img src="${imgUrl(path)}" alt="Pool camera frame" onload="drawOverlay(this)">
+    <svg aria-hidden="true"></svg></div>`;
+}
+
+function drawOverlay(img) {
+  const box = img.parentElement, svg = $("svg", box);
+  const dets = JSON.parse(box.dataset.dets || "[]");
+  const zone = JSON.parse(box.dataset.zone || "null");
+  const size = JSON.parse(box.dataset.size || "null");
+  // Boxes are in the zone-drawing resolution when one is configured, else image pixels.
+  const [W, H] = size || [img.naturalWidth, img.naturalHeight];
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  const fs = Math.max(12, W / 70), sw = 2.5;
+  let out = "";
+  const poly = (pts, color, dash) => `<polygon points="${pts.map(p => p.join(",")).join(" ")}"
+      fill="${color}" fill-opacity=".07" stroke="${color}" stroke-width="${sw}"
+      stroke-dasharray="${dash}" vector-effect="non-scaling-stroke"/>`;
+  if (zone) {
+    out += poly(zone.points, "var(--water)", "8 6");
+    for (const h of zone.holes || []) out += poly(h, "var(--other)", "4 4");
+  }
+  for (const d of dets) {
+    const color = KIND_COLOR[d.kind] || KIND_COLOR.other;
+    const x = d.x - d.width / 2, y = d.y - d.height / 2;
+    const counted = d.kind !== "debris" || d.in_water;
+    const label = `${d.label} ${Math.round(d.confidence * 100)}%`;
+    const lw = label.length * fs * .58 + fs * .6;
+    const ly = y - fs * 1.35 < 0 ? y + d.height : y - fs * 1.35;
+    out += `<rect x="${x}" y="${y}" width="${d.width}" height="${d.height}" fill="none"
+        stroke="${color}" stroke-width="${sw + 0.5}" ${counted ? "" : 'stroke-dasharray="6 5"'}
+        vector-effect="non-scaling-stroke" rx="2"/>
+      <rect x="${x}" y="${ly}" width="${lw}" height="${fs * 1.35}" fill="${color}" rx="3"/>
+      <text x="${x + fs * .3}" y="${ly + fs * 1.02}" font-size="${fs}" font-weight="600"
+        fill="#fff" font-family="system-ui, sans-serif">${esc(label)}</text>`;
+  }
+  svg.innerHTML = out;
+}
+
+function legend() {
+  return `<span class="legend"><span><i style="background:var(--debris)"></i>debris</span>
+    <span><i style="background:var(--person)"></i>person</span>
+    <span><i style="border:2px dashed var(--water)"></i>water zone</span></span>`;
+}
+
+function countLine(frame) {
+  const d = frame?.detections || [];
+  const debris = d.filter(x => x.kind === "debris" && x.in_water).length;
+  const people = d.filter(x => x.kind === "person").length;
+  return `<span><b>${debris}</b> debris on the water · <b>${people}</b> ${people === 1 ? "person" : "people"}`;
+}
+
+// ---- pump state card --------------------------------------------------------
+function pumpCard(s) {
+  if (!s) return `<div class="card pad"><h2>Pump</h2><p class="muted">Waiting for the first image…</p></div>`;
+  const p = s.pump, set = s.settings, now = new Date(s.now);
+  let state, extra = "";
+  if (p.state === "boosting") {
+    const until = new Date(p.boost_until), total = set.boost_minutes * 60000;
+    const left = Math.max(0, until - now), pct = Math.min(100, 100 * (1 - left / total));
+    state = `<div class="pump-state boosting">Boosting ${p.speed_pct ?? set.boost_speed_pct}%
+             <small>for ${set.boost_minutes} min</small></div>`;
+    extra = `<div class="bar"><div style="width:${pct}%"></div></div>
+      <div class="sub">Retest at <b>${time(p.boost_until)}</b> · ${Math.ceil(left / 60000)} min left
+      ${p.extensions ? `· extension ${p.extensions} of ${p.max_extensions}` : ""}</div>`;
+  } else if (p.state === "cooldown") {
+    state = `<div class="pump-state">On schedule <small>cooling down</small></div>`;
+    extra = `<div class="sub">No new boosts until ${time(p.cooldown_until)}</div>`;
+  } else {
+    state = `<div class="pump-state">On schedule</div>`;
+    extra = `<div class="sub">Boosts to ${set.boost_speed_pct}% for ${set.boost_minutes} min after
+             debris in ${set.consecutive_readings} consecutive images</div>`;
+  }
+  const pips = Array.from({length: s.required}, (_, i) =>
+    `<i class="${i < s.streak || p.state === "boosting" ? "on" : ""}"></i>`).join("");
+  const budget = Math.min(100, 100 * p.boost_minutes_today / p.budget_minutes);
+  return `<div class="card pad"><h2>Filter pump</h2>${state}${extra}
+    <dl class="kv">
+      <dt>Debris now</dt><dd>${s.reading.count} item${s.reading.count === 1 ? "" : "s"} ·
+        ${pct(s.reading.coverage_pct)}</dd>
+      <dt>Confirmation</dt><dd><span class="pips" title="consecutive images with debris">${pips}</span></dd>
+      <dt>Swimmers</dt><dd>${s.swimmers}</dd>
+      <dt>Boost time today</dt><dd>${Math.round(p.boost_minutes_today)} / ${p.budget_minutes} min</dd>
+    </dl>
+    <div class="bar" style="height:5px"><div style="width:${budget}%;background:var(--muted)"></div></div>
+  </div>`;
+}
+
+function decisionCard(sum, ts, title = "Latest decision") {
+  if (!sum) return "";
+  return `<div class="card pad decision" style="--tone:${toneVar(sum.tone)}">
+    <h2>${esc(title)}</h2><p class="head">${esc(sum.headline)}</p>
+    <p class="detail">${esc(sum.detail)}</p>${ts ? `<div class="when">${time(ts)}</div>` : ""}</div>`;
+}
+
+function timeline(events) {
+  if (!events.length) return `<p class="muted">Nothing yet.</p>`;
+  return `<div class="timeline">${events.map(e => {
+    const debris = (e.frames.at(-1)?.detections || []).filter(d => d.kind === "debris" && d.in_water).length;
+    const thumb = e.frames.length
+      ? `<div class="thumb" style="background-image:url('${imgUrl(e.image)}')">
+           ${debris ? `<span class="badge">${debris} debris</span>` : ""}</div>`
+      : `<div class="thumb timer-img" style="background-image:url('${imgUrl(e.image)}')">
+           <span class="badge">⏱ 15-min timer</span></div>`;
+    return `<a class="tl" href="#/event/${e.id}" style="--tone:${toneVar(e.summary.tone)}">${thumb}
+      <div class="txt"><div class="t">${time(e.ts)}</div><div class="h">${esc(e.summary.headline)}</div></div></a>`;
+  }).join("")}</div>`;
+}
+
+// ---- pages ------------------------------------------------------------------
+let lastKey = null;
+
+async function renderHome(force) {
+  const {state, latest} = await getJSON("/api/state");
+  setHeader(state);
+  const key = JSON.stringify([state?.latest_event_id, state?.now]);
+  if (!force && key === lastKey) return;
+  const events = await getJSON("/api/events?limit=24");
+  lastKey = key;
+  const frame = latest?.frames?.at(-1) || null;
+  const path = latest?.image || state?.latest_image;
+  $("#app").innerHTML = `
+    <div class="grid">
+      <div class="card">${frameView(path, frame, state)}
+        <div class="caption">${frame ? countLine(frame) + ` · ${time(latest.ts)}</span>` : ""}${legend()}</div></div>
+      <div class="stack">${pumpCard(state)}${decisionCard(state?.summary, state?.now)}</div>
+    </div>
+    <div class="section"><h2>Recent images and actions</h2>${timeline(events)}</div>`;
+}
+
+async function renderEvent(id) {
+  lastKey = null;
+  const {event: e, prev, next, state} = await getJSON(`/api/events/${id}`);
+  setHeader(state);
+  const frame = e.frames.at(-1) || null;
+  const rows = (frame?.detections || []).map(d => `<tr>
+      <td><span class="tag" style="background:${KIND_COLOR[d.kind] || KIND_COLOR.other}">${esc(d.label)}</span></td>
+      <td class="num">${Math.round(d.confidence * 100)}%</td>
+      <td>${d.in_water ? "in water" : "outside water zone"}</td>
+      <td class="num">${Math.round(d.width)}×${Math.round(d.height)}</td></tr>`).join("");
+  const p = e.pump;
+  $("#app").innerHTML = `
+    <div class="nav">
+      <a class="btn" href="#/">← Live view</a>
+      <a class="btn" href="#/event/${prev}" aria-disabled="${!prev}">‹ Older</a>
+      <a class="btn" href="#/event/${next}" aria-disabled="${!next}">Newer ›</a>
+      <span class="muted">Event ${e.id} · ${new Date(e.ts).toLocaleString()}</span>
+    </div>
+    <div class="grid">
+      <div class="card">${frameView(e.image, frame, state)}
+        <div class="caption"><span>${esc((e.image || "").split(/[\\/]/).pop())}</span>
+          ${e.from_timer ? "<b>timer event (no new image)</b>" : ""}${legend()}</div></div>
+      <div class="stack">
+        ${decisionCard(e.summary, e.ts, "Action taken")}
+        <div class="card pad"><h2>Labels on this image</h2>
+          ${rows ? `<table><thead><tr><th>Label</th><th>Conf.</th><th>Where</th><th>Size</th></tr></thead>
+            <tbody>${rows}</tbody></table>` : `<p class="muted">${e.from_timer ? "No image: this was the boost timer running out." : "Nothing detected."}</p>`}
+        </div>
+        <div class="card pad"><h2>Pump after this decision</h2><dl class="kv" style="border:0;margin:0;padding:0">
+          <dt>State</dt><dd>${esc(p.state)}${p.speed_pct ? ` · ${p.speed_pct}%` : ""}</dd>
+          <dt>Debris reading</dt><dd>${e.reading.count} · ${pct(e.reading.coverage_pct)}</dd>
+          <dt>Confirmation</dt><dd>${e.streak} / ${e.required}</dd>
+          ${p.boost_until ? `<dt>Retest at</dt><dd>${time(p.boost_until)}</dd>` : ""}
+          <dt>Rule</dt><dd style="font-weight:500">${esc(e.action.kind)}: ${esc(e.action.reason)}</dd>
+        </dl></div>
+      </div>
+    </div>`;
+}
+
+function setHeader(state) {
+  const mode = state?.mode || "idle";
+  const m = $("#mode");
+  m.className = "chip " + mode;
+  m.textContent = {live: "Live · pump control on", "dry-run": "Dry run · pump commands off",
+                   simulated: "Demo replay · simulated clock"}[mode] || mode;
+  $("#clock").textContent = state ? new Date(state.now).toLocaleString([], {
+    weekday: "short", hour: "numeric", minute: "2-digit"}) : "waiting for data";
+}
+
+async function route(force) {
+  const m = location.hash.match(/^#\/event\/(\d+)/);
+  try {
+    if (m) await renderEvent(+m[1]); else await renderHome(force);
+    $("#conn").classList.remove("stale");
+  } catch (err) {
+    $("#conn").classList.add("stale");
+  }
+}
+window.addEventListener("hashchange", () => route(true));
+setInterval(() => { if (!location.hash.startsWith("#/event/")) route(false); }, 2000);
+route(true);
+</script>
+</body>
+</html>

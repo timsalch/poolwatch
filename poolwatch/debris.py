@@ -95,6 +95,11 @@ class PumpPolicy:
     def minutes_used_today(self) -> float:
         return self._minutes_used
 
+    @property
+    def high_streak(self) -> int:
+        """Consecutive fresh readings with debris above threshold."""
+        return self._high_streak
+
     def _budget_left(self) -> float:
         return self.pump.max_boost_minutes_per_day - self._minutes_used
 

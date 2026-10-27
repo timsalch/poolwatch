@@ -5,7 +5,7 @@ data_dir = "data"
 [ring]
 camera_name = "Backyard"          # exactly as named in the Ring app
 token_file = ".ring_token.json"   # created by `poolwatch ring-login`
-snapshot_interval_minutes = 15    # wired cameras only
+snapshot_interval_minutes = 3     # wired, or battery on solar
 
 [roboflow]
 workspace = "your-workspace"
@@ -67,16 +67,16 @@ quiet_hours = ["21:00-07:00"]
 alert_cooldown_seconds = 120
 
 [debris]
-debris_labels = ["leaf", "debris", "bug"]
+debris_labels = ["leaf", "debris", "bug"]   # your Roboflow model's class names
 min_confidence = 0.4
-count_threshold = 5
-coverage_threshold_pct = 1.0
-consecutive_readings = 2
+count_threshold = 1               # debris items on the water that make an image "dirty"
+coverage_threshold_pct = 1.0      # ...or this % of the water surface covered
+consecutive_readings = 2          # dirty images in a row before the pump boosts
 
 [pump]
-boost_speed_pct = 75
-boost_minutes = 30
+boost_speed_pct = 90              # boost speed
+boost_minutes = 15                # then retest: still dirty -> extend, clear -> back to schedule
 max_extensions = 2
-cooldown_minutes = 60
+cooldown_minutes = 15
 max_boost_minutes_per_day = 240
 no_boost_hours = ["22:00-07:00"]

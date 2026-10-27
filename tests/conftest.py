@@ -21,7 +21,7 @@ RAW = {
     "omnilogic": {"host": "127.0.0.1"},
     "safety": {"quiet_hours": ["21:00-07:00"], "alert_cooldown_seconds": 120},
     "debris": {"count_threshold": 3, "coverage_threshold_pct": 5.0, "consecutive_readings": 2},
-    "pump": {"boost_minutes": 30, "max_extensions": 1, "cooldown_minutes": 60,
+    "pump": {"boost_speed_pct": 75, "boost_minutes": 30, "max_extensions": 1, "cooldown_minutes": 60,
              "max_boost_minutes_per_day": 90, "no_boost_hours": ["22:00-07:00"]},
 }
 

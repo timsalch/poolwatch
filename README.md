@@ -45,7 +45,11 @@ flowchart LR
 | `debris.py` | Debris scoring and the pump policy state machine |
 | `pump.py` | OmniLogic adapter over `python-omnilogic-local`, with dry-run mode |
 | `notify.py` | Console, ntfy push and email (SMTP) alert channels |
-| `pipeline.py` | Ties a batch of frames to alerts, pump actions and the decision log |
+| `pipeline.py` | Ties a batch of frames to alerts, pump actions, the decision log and dashboard events |
+| `summary.py` | Turns each pump decision into a plain-English headline and detail |
+| `history.py` | Event history (`data/events.jsonl`) and live state (`data/state.json`) for the dashboard |
+| `watch.py` | Processes images as they land in a folder, or replays saved images on a simulated clock |
+| `web.py`, `dashboard.html` | Local dashboard: latest image with its labels, pump state, and every decision |
 | `tools/zone-picker.html` | Click-to-outline zone editor that outputs the `[zones]` config |
 
 ### Design decisions
@@ -122,6 +126,35 @@ environment variable (it exposes your whole calendar, so never commit it), set
 the trips it found. A trip runs from the first flight away until a flight home
 lands; an event titled "vacation" or "out of town" also counts.
 
+## Dashboard and demo
+
+The pump rule: **debris on the water in 2 consecutive images boosts the filter
+pump to 90% for 15 minutes, then it retests.** Still dirty at the retest extends
+the boost another 15 minutes (up to `max_extensions`); clear hands the pump back
+to its schedule. Debris outside the water zone never counts.
+
+The dashboard's home page shows the latest image with its labels drawn on it,
+the pump's current state with a countdown to the retest, and the latest
+decision. Below that, every processed image and pump change is a card; open one
+for its labels, the action taken and why.
+
+```bash
+# Demo: replay a folder of saved frames, 3 simulated minutes apart, every 3 seconds.
+# The pump is simulated, so this is safe anywhere. Open http://localhost:8000
+poolwatch watch --replay --folder data/debris-2026-10-26
+
+# Live: process frames as the collector saves them (pump in dry-run by default)
+poolwatch watch                       # watches data/frames and data/snapshots
+poolwatch run --dashboard 8000        # or the full Ring loop with the dashboard
+poolwatch dashboard                   # dashboard only, for a monitor already running
+```
+
+Replay options: `--delay` (real seconds per image), `--step-minutes` (simulated
+minutes per image), `--start 10:00`. Detections are cached per image and
+Workflow id in `data/detection_cache`, so replaying again doesn't call Roboflow
+again; a new `workflow_id` gets fresh results. Add `--host 0.0.0.0` to open the
+dashboard from a phone on your Wi-Fi.
+
 ## Tests
 
 ```bash
@@ -131,7 +164,10 @@ pytest
 The suite covers zones and excluded areas, Workflow output parsing and
 rescaling, config parsing, the safety rules and throttling, the full pump
 policy state machine, the pipeline end to end with a fake detector and pump,
-the Ring source (clip retries, snapshot fallbacks), and the OmniLogic adapter.
+the Ring source (clip retries, snapshot fallbacks), the OmniLogic adapter, the
+demo flow (2 dirty images, 90% for 15 minutes, retest), decision summaries, the
+event history, the folder watcher and detection cache, and the dashboard's API
+and image path checks.
 A guard test fails if `python-omnilogic-local` renames something the adapter
 relies on. CI runs it on Linux and Windows.
 

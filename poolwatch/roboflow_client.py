@@ -65,3 +65,35 @@ class RoboflowWorkflowDetector:
             if frame_size:
                 detections = rescale(detections, frame_size, self._reference_size)
         return detections
+
+
+class CachingDetector:
+    """Remembers detections per image so replaying a demo doesn't re-bill Roboflow.
+
+    The cache key is the image's path, size and modification time plus the
+    Workflow id, so a retrained Workflow (new id) or an edited image is re-run.
+    """
+
+    def __init__(self, inner: Detector, cache_dir: str | Path, key: str = "") -> None:
+        import hashlib
+        import json
+
+        self._inner = inner
+        self._dir = Path(cache_dir)
+        self._dir.mkdir(parents=True, exist_ok=True)
+        self._key = key
+        self._hashlib, self._json = hashlib, json
+
+    def _path_for(self, image_path: str | Path) -> Path:
+        p = Path(image_path)
+        st = p.stat()
+        raw = f"{self._key}|{p.resolve()}|{st.st_size}|{st.st_mtime_ns}"
+        return self._dir / (self._hashlib.sha1(raw.encode()).hexdigest() + ".json")
+
+    def detect(self, image_path: str | Path) -> list[Detection]:
+        cached = self._path_for(image_path)
+        if cached.exists():
+            return [Detection(**d) for d in self._json.loads(cached.read_text())]
+        dets = self._inner.detect(image_path)
+        cached.write_text(self._json.dumps([d.__dict__ for d in dets]))
+        return dets

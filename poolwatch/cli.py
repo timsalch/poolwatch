@@ -66,7 +66,7 @@ async def _backfill(cfg, days: int, max_clips: int) -> None:
         await ring.close()
 
 
-async def _run(cfg, dry_run: bool) -> None:
+async def _run(cfg, dry_run: bool, dashboard_port: int | None = None, host: str = "127.0.0.1") -> None:
     from .ring_source import RingSource
 
     tz = ZoneInfo(cfg.timezone)
@@ -74,27 +74,54 @@ async def _run(cfg, dry_run: bool) -> None:
     try:
         await ring.connect()
         await ring.prime()
-        await _run_loop(cfg, ring, dry_run, tz)
+        await _run_loop(cfg, ring, dry_run, tz, dashboard_port, host)
     finally:
         await ring.close()
 
 
-async def _run_loop(cfg, ring, dry_run: bool, tz) -> None:
+def _build_pipeline(cfg, tz, pump_mode: str, cache: bool = False, mode_label: str | None = None):
+    """pump_mode: 'live' sends commands, 'dry-run' talks to OmniLogic but only logs,
+    'fake' never touches the controller (for demos away from home)."""
+    from .history import EventStore
     from .notify import build_notifier
     from .pipeline import DecisionLog, Pipeline
-    from .pump import OmniLogicPump
-    from .roboflow_client import RoboflowWorkflowDetector
+    from .pump import FakePump, OmniLogicPump
+    from .roboflow_client import CachingDetector, RoboflowWorkflowDetector
 
-    pump = OmniLogicPump(cfg.omnilogic.host, cfg.omnilogic.filter_name,
-                         dry_run=dry_run or cfg.omnilogic.dry_run,
-                         filter_system_id=cfg.omnilogic.filter_system_id)
-    notifier = build_notifier(cfg.notify)
-    pipeline = Pipeline(cfg, RoboflowWorkflowDetector(cfg.roboflow, reference_size=cfg.zone_image_size), pump, notifier,
-                        DecisionLog(Path(cfg.data_dir) / "decisions.jsonl"),
-                        away_source=_away_source(cfg, tz))
+    if pump_mode == "fake":
+        pump = FakePump()
+    else:
+        pump = OmniLogicPump(cfg.omnilogic.host, cfg.omnilogic.filter_name,
+                             dry_run=pump_mode != "live",
+                             filter_system_id=cfg.omnilogic.filter_system_id)
+    detector = RoboflowWorkflowDetector(cfg.roboflow, reference_size=cfg.zone_image_size)
+    if cache:
+        detector = CachingDetector(detector, Path(cfg.data_dir) / "detection_cache",
+                                   key=f"{cfg.roboflow.workspace}/{cfg.roboflow.workflow_id}")
+    mode = mode_label or ("live" if pump_mode == "live" else "dry-run")
+    return Pipeline(cfg, detector, pump, build_notifier(cfg.notify),
+                    DecisionLog(Path(cfg.data_dir) / "decisions.jsonl"),
+                    away_source=_away_source(cfg, tz),
+                    events=EventStore(cfg.data_dir), mode=mode)
+
+
+def _start_dashboard(cfg, port: int | None, host: str, extra_roots=()) -> None:
+    if port is None:
+        return
+    from .history import EventStore
+    from .web import serve
+
+    serve(EventStore(cfg.data_dir), [Path(cfg.data_dir), *extra_roots], host, port, background=True)
+
+
+async def _run_loop(cfg, ring, dry_run: bool, tz, dashboard_port: int | None = None,
+                    host: str = "127.0.0.1") -> None:
+    live = not (dry_run or cfg.omnilogic.dry_run)
+    pipeline = _build_pipeline(cfg, tz, "live" if live else "dry-run")
+    _start_dashboard(cfg, dashboard_port, host)
 
     next_snap = datetime.now(tz)
-    log.info("running (pump %s)", "DRY RUN" if pump.dry_run else "LIVE")
+    log.info("running (pump %s)", "LIVE" if live else "DRY RUN")
     while True:
         now = datetime.now(tz)
         try:
@@ -112,6 +139,47 @@ async def _run_loop(cfg, ring, dry_run: bool, tz) -> None:
         except Exception:
             log.exception("loop error")
         await asyncio.sleep(60)
+
+
+async def _watch(cfg, args) -> None:
+    """Process images as they appear in folders, or replay saved ones as a demo."""
+    from .watch import FolderWatcher, list_images, replay, watch_loop
+
+    tz = ZoneInfo(cfg.timezone)
+    folders = [Path(f) for f in (args.folder or [Path(cfg.data_dir) / "frames",
+                                                 Path(cfg.data_dir) / "snapshots"])]
+    for f in folders:
+        if not f.is_dir():
+            raise SystemExit(f"Folder not found: {f}")
+    pump_mode = "fake" if args.replay and args.pump == "dry-run" else args.pump
+    pipeline = _build_pipeline(cfg, tz, pump_mode, cache=True,
+                               mode_label="simulated" if args.replay else None)
+    if args.replay:
+        pipeline.events.reset()  # each demo replay starts with a clean history
+    _start_dashboard(cfg, args.dashboard, args.host, folders)
+
+    if args.replay:
+        images = list_images(folders)
+        if not images:
+            raise SystemExit(f"No images in {', '.join(map(str, folders))}")
+        h, m = (int(x) for x in args.start.split(":"))
+        start = datetime.now(tz).replace(hour=h, minute=m, second=0, microsecond=0)
+        log.info("replaying %d images, %g simulated minutes apart, %gs between images",
+                 len(images), args.step_minutes, args.delay)
+        await replay(pipeline, images, start, args.step_minutes, args.delay)
+        if args.dashboard is not None:
+            log.info("replay finished; dashboard stays up until Ctrl+C")
+            while True:
+                await asyncio.sleep(3600)
+        return
+    await watch_loop(pipeline, FolderWatcher(folders), tz, interval=args.interval)
+
+
+def _dashboard(cfg, port: int, host: str) -> None:
+    from .history import EventStore
+    from .web import serve
+
+    serve(EventStore(cfg.data_dir), [Path(cfg.data_dir)], host, port)
 
 
 def _test_alert(cfg) -> None:
@@ -203,6 +271,22 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("image")
     p = sub.add_parser("run", help="run the monitor loop")
     p.add_argument("--dry-run", action="store_true", help="never send pump commands")
+    _dashboard_args(p, default_port=None)
+    p = sub.add_parser("watch", help="process images as they appear in folders (or replay them)")
+    p.add_argument("--folder", action="append",
+                   help="folder to watch; repeatable (default: data/frames and data/snapshots)")
+    p.add_argument("--interval", type=float, default=5, help="seconds between folder checks")
+    p.add_argument("--pump", choices=["dry-run", "live", "fake"], default="dry-run",
+                   help="dry-run logs pump commands; live sends them; fake skips the controller")
+    p.add_argument("--replay", action="store_true",
+                   help="demo: play the folder's existing images on a simulated clock")
+    p.add_argument("--step-minutes", type=float, default=3,
+                   help="replay: simulated minutes between images (camera snapshot cadence)")
+    p.add_argument("--delay", type=float, default=3, help="replay: real seconds between images")
+    p.add_argument("--start", default="10:00", help="replay: simulated start time, HH:MM")
+    _dashboard_args(p, default_port=8000)
+    p = sub.add_parser("dashboard", help="serve the dashboard for a monitor running elsewhere")
+    _dashboard_args(p, default_port=8000)
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -224,6 +308,14 @@ def main(argv: list[str] | None = None) -> None:
         log.info("stopped")
 
 
+def _dashboard_args(p, default_port: int | None) -> None:
+    p.add_argument("--dashboard", type=int, default=default_port, metavar="PORT",
+                   help="serve the dashboard on this port" +
+                        (" (default 8000)" if default_port else ""))
+    p.add_argument("--host", default="127.0.0.1",
+                   help="dashboard address; 0.0.0.0 lets phones on your Wi-Fi open it")
+
+
 def _dispatch(args) -> None:
     cfg = load_config(args.config)
     if args.cmd == "collect":
@@ -239,7 +331,11 @@ def _dispatch(args) -> None:
     elif args.cmd == "detect":
         _detect(cfg, args.image)
     elif args.cmd == "run":
-        asyncio.run(_run(cfg, args.dry_run))
+        asyncio.run(_run(cfg, args.dry_run, args.dashboard, args.host))
+    elif args.cmd == "watch":
+        asyncio.run(_watch(cfg, args))
+    elif args.cmd == "dashboard":
+        _dashboard(cfg, args.dashboard or 8000, args.host)
 
 
 if __name__ == "__main__":
