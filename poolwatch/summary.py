@@ -45,6 +45,50 @@ def describe(
     boost_until: datetime | None,
     cooldown_until: datetime | None,
     extensions: int,
+    ignored: int = 0,
+    newly_ignored: int = 0,
+    released: int = 0,
+    dirty_cycles: int = 0,
+) -> Summary:
+    base = _describe(action, reading, streak=streak, debris=debris, pump=pump, state=state,
+                     boost_until=boost_until, cooldown_until=cooldown_until,
+                     extensions=extensions)
+    if newly_ignored:
+        cycles = "cycle" if dirty_cycles == 1 else "cycles"
+        noun = "item" if newly_ignored == 1 else "items"
+        minutes = dirty_cycles * pump.boost_minutes * (1 + pump.max_extensions)
+        return Summary(
+            f"Debris won't clear: ignoring {newly_ignored} stuck {noun}",
+            f"Still there after {dirty_cycles} full boost {cycles} (up to {minutes} min at "
+            f"{pump.boost_speed_pct}%). Pump back on its schedule. Those spots are ignored "
+            f"until they're clear in {debris.stuck_clear_readings} images in a row; new "
+            "debris anywhere else still counts.",
+            "warn",
+        )
+    if released and action.kind is ActionKind.NONE and state is not PumpState.BOOSTING:
+        noun = "item is" if released == 1 else "items are"
+        return Summary(
+            f"Stuck debris gone: watching {'that spot' if released == 1 else 'those spots'} again",
+            f"{released} ignored {noun} no longer seen. {base.headline}.",
+            "ok" if base.tone in ("ok", "neutral") else base.tone,
+        )
+    if ignored:
+        noun = "item" if ignored == 1 else "items"
+        return Summary(base.headline, f"{base.detail} Ignoring {ignored} stuck {noun}.", base.tone)
+    return base
+
+
+def _describe(
+    action: PumpAction,
+    reading: DebrisReading,
+    *,
+    streak: int,
+    debris: DebrisConfig,
+    pump: PumpPolicyConfig,
+    state: PumpState,
+    boost_until: datetime | None,
+    cooldown_until: datetime | None,
+    extensions: int,
 ) -> Summary:
     high = reading.is_high(debris)
     needed = debris.consecutive_readings

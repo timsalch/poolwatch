@@ -9,13 +9,15 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import Config
-from .debris import ActionKind, DebrisReading, PumpAction, PumpPolicy, score_debris
+from .debris import (ActionKind, DebrisReading, PumpAction, PumpPolicy, debris_in_water,
+                     reading_for)
 from .detections import Detection
 from .history import EventStore
 from .notify import Notifier
 from .pump import PumpController
 from .roboflow_client import Detector
 from .safety import Alert, AlertThrottle, evaluate, summarize
+from .stuck import StuckDebris
 from .summary import Summary, describe
 
 log = logging.getLogger(__name__)
@@ -69,6 +71,9 @@ class Pipeline:
         self.events = events
         self.mode = mode  # "live", "dry-run" or "simulated"; shown on the dashboard
         self._speed_pct: int | None = None  # None = on its normal schedule
+        self.stuck = StuckDebris(config.debris, config.water_zone)
+        self._dirty_cycles = 0  # boost cycles in a row that ended with debris still there
+        self._last_debris: list[Detection] = []  # counted debris in the latest reading
         self._last_image: str | None = None
 
     async def process(self, frames: list[Path], now: datetime) -> BatchResult:
@@ -85,6 +90,9 @@ class Pipeline:
                 log.exception("away check failed; treating as home")
 
         per_frame: list[dict] = []
+        counted_debris: list[Detection] = []
+        all_debris: list[Detection] = []  # including ignored, to see if stuck spots cleared
+        detected = False
         for frame in frames:
             try:
                 dets = self.detector.detect(frame)
@@ -92,6 +100,7 @@ class Pipeline:
                 log.exception("detection failed for %s", frame)
                 per_frame.append({"path": str(frame), "error": "detection failed", "detections": []})
                 continue
+            detected = True
             per_frame.append(self._frame_record(frame, dets))
             alert = evaluate(dets, now, cfg.safety, cfg.water_zone, cfg.deck_zone, cfg.gate_zone,
                              away=away)
@@ -99,9 +108,12 @@ class Pipeline:
                 worst = (alert, frame)
             scene = summarize(dets, cfg.safety, cfg.water_zone, cfg.deck_zone, cfg.gate_zone)
             swimmers = max(swimmers, len(scene.in_water))
-            r = score_debris(dets, cfg.water_zone, cfg.debris)
+            on_water = debris_in_water(dets, cfg.water_zone, cfg.debris)
+            all_debris.extend(on_water)
+            counted = [d for d in on_water if not self.stuck.is_ignored(d)]
+            r = reading_for(counted, cfg.water_zone)
             if (r.count, r.coverage_pct) > (reading.count, reading.coverage_pct):
-                reading = r
+                reading, counted_debris = r, counted
 
         sent = False
         if worst is not None and self.throttle.should_send(worst[0], now):
@@ -109,17 +121,26 @@ class Pipeline:
             sent = True
 
         fresh = bool(frames)
+        released = []
         if fresh:
             self._last_reading, self._swimmers = reading, swimmers
+            self._last_debris = counted_debris
+            if detected:  # a failed detection says nothing about whether a spot cleared
+                released = self.stuck.observe(all_debris)
         action = self.policy.tick(self._last_reading, now, self._swimmers > 0, fresh=fresh)
+        newly_ignored = self._track_stuck(action, now)
         await self._apply(action)
 
         p = self.policy
         summary = describe(
             action, self._last_reading, streak=p.high_streak, debris=cfg.debris, pump=cfg.pump,
             state=p.state, boost_until=p.boost_until, cooldown_until=p.cooldown_until,
-            extensions=p.extensions,
+            extensions=p.extensions, ignored=len(self.stuck.spots),
+            newly_ignored=newly_ignored, released=len(released),
+            dirty_cycles=self._dirty_cycles if not newly_ignored else cfg.debris.stuck_after_cycles,
         )
+        if newly_ignored:
+            self._dirty_cycles = 0
         result = BatchResult(len(frames), worst[0] if worst else None, sent,
                              self._last_reading, self._swimmers, action, summary)
         if self.events is not None:
@@ -142,6 +163,23 @@ class Pipeline:
             })
         return result
 
+    def _track_stuck(self, action: PumpAction, now: datetime) -> int:
+        """After a boost cycle ends, count it as dirty or clean; ignore debris that keeps
+        surviving. Returns how many pieces were newly ignored."""
+        if action.kind is not ActionKind.RESTORE or action.reason != "boost finished":
+            return 0
+        if not self._last_reading.is_high(self.config.debris):
+            self._dirty_cycles = 0
+            return 0
+        self._dirty_cycles += 1
+        dc = self.config.debris
+        if not dc.ignore_stuck or self._dirty_cycles < dc.stuck_after_cycles:
+            return 0
+        added = self.stuck.mark(self._last_debris, now)
+        if added:
+            log.info("ignoring %d stuck debris item(s) until they clear", added)
+        return added
+
     def _frame_record(self, frame: Path, dets: list[Detection]) -> dict:
         water = self.config.water_zone
         labels = {l.lower() for l in self.config.debris.debris_labels}
@@ -153,7 +191,8 @@ class Pipeline:
                  "width": round(d.width, 1), "height": round(d.height, 1),
                  "kind": "debris" if d.label in labels else
                          "person" if d.label in self.config.safety.person_labels else "other",
-                 "in_water": d.in_zone(water, "center")}
+                 "in_water": d.in_zone(water, "center"),
+                 "ignored": d.label in labels and self.stuck.is_ignored(d)}
                 for d in dets
             ],
         }
@@ -184,6 +223,9 @@ class Pipeline:
             "required": cfg.debris.consecutive_readings,
             "swimmers": result.swimmers,
             "pump": self._pump_status(),
+            "stuck": [{"x": s.x, "y": s.y, "width": s.width, "height": s.height,
+                       "since": s.since, "clear_streak": s.clear_streak}
+                      for s in self.stuck.spots],
         }
         latest = None
         if per_frame or result.action.kind is not ActionKind.NONE:

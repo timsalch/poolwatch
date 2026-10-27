@@ -166,10 +166,10 @@ function drawOverlay(img) {
     for (const h of zone.holes || []) out += poly(h, "var(--other)", "4 4");
   }
   for (const d of dets) {
-    const color = KIND_COLOR[d.kind] || KIND_COLOR.other;
+    const color = d.ignored ? KIND_COLOR.other : (KIND_COLOR[d.kind] || KIND_COLOR.other);
     const x = d.x - d.width / 2, y = d.y - d.height / 2;
-    const counted = d.kind !== "debris" || d.in_water;
-    const label = `${d.label} ${Math.round(d.confidence * 100)}%`;
+    const counted = d.kind !== "debris" || (d.in_water && !d.ignored);
+    const label = `${d.label} ${Math.round(d.confidence * 100)}%${d.ignored ? " · stuck" : ""}`;
     const lw = label.length * fs * .58 + fs * .6;
     const ly = y - fs * 1.35 < 0 ? y + d.height : y - fs * 1.35;
     out += `<rect x="${x}" y="${y}" width="${d.width}" height="${d.height}" fill="none"
@@ -185,14 +185,17 @@ function drawOverlay(img) {
 function legend() {
   return `<span class="legend"><span><i style="background:var(--debris)"></i>debris</span>
     <span><i style="background:var(--person)"></i>person</span>
+    <span><i style="background:var(--other)"></i>stuck (ignored)</span>
     <span><i style="border:2px dashed var(--water)"></i>water zone</span></span>`;
 }
 
 function countLine(frame) {
   const d = frame?.detections || [];
-  const debris = d.filter(x => x.kind === "debris" && x.in_water).length;
+  const debris = d.filter(x => x.kind === "debris" && x.in_water && !x.ignored).length;
+  const stuck = d.filter(x => x.kind === "debris" && x.ignored).length;
   const people = d.filter(x => x.kind === "person").length;
-  return `<span><b>${debris}</b> debris on the water · <b>${people}</b> ${people === 1 ? "person" : "people"}`;
+  return `<span><b>${debris}</b> debris on the water${stuck ? ` (+${stuck} stuck, ignored)` : ""} ·
+    <b>${people}</b> ${people === 1 ? "person" : "people"}`;
 }
 
 // ---- pump state card --------------------------------------------------------
@@ -224,6 +227,9 @@ function pumpCard(s) {
       <dt>Debris now</dt><dd>${s.reading.count} item${s.reading.count === 1 ? "" : "s"} ·
         ${pct(s.reading.coverage_pct)}</dd>
       <dt>Confirmation</dt><dd><span class="pips" title="consecutive images with debris">${pips}</span></dd>
+      <dt>Stuck debris ignored</dt><dd>${(s.stuck || []).length
+        ? `${s.stuck.length} since ${time(s.stuck.reduce((a, b) => a.since < b.since ? a : b).since)}`
+        : "none"}</dd>
       <dt>Swimmers</dt><dd>${s.swimmers}</dd>
       <dt>Boost time today</dt><dd>${Math.round(p.boost_minutes_today)} / ${p.budget_minutes} min</dd>
     </dl>
@@ -241,7 +247,7 @@ function decisionCard(sum, ts, title = "Latest decision") {
 function timeline(events) {
   if (!events.length) return `<p class="muted">Nothing yet.</p>`;
   return `<div class="timeline">${events.map(e => {
-    const debris = (e.frames.at(-1)?.detections || []).filter(d => d.kind === "debris" && d.in_water).length;
+    const debris = (e.frames.at(-1)?.detections || []).filter(d => d.kind === "debris" && d.in_water && !d.ignored).length;
     const thumb = e.frames.length
       ? `<div class="thumb" style="background-image:url('${imgUrl(e.image)}')">
            ${debris ? `<span class="badge">${debris} debris</span>` : ""}</div>`
@@ -279,9 +285,9 @@ async function renderEvent(id) {
   setHeader(state);
   const frame = e.frames.at(-1) || null;
   const rows = (frame?.detections || []).map(d => `<tr>
-      <td><span class="tag" style="background:${KIND_COLOR[d.kind] || KIND_COLOR.other}">${esc(d.label)}</span></td>
+      <td><span class="tag" style="background:${d.ignored ? KIND_COLOR.other : KIND_COLOR[d.kind] || KIND_COLOR.other}">${esc(d.label)}</span></td>
       <td class="num">${Math.round(d.confidence * 100)}%</td>
-      <td>${d.in_water ? "in water" : "outside water zone"}</td>
+      <td>${d.ignored ? "stuck, ignored" : d.in_water ? "in water" : "outside water zone"}</td>
       <td class="num">${Math.round(d.width)}×${Math.round(d.height)}</td></tr>`).join("");
   const p = e.pump;
   $("#app").innerHTML = `

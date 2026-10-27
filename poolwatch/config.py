@@ -52,6 +52,16 @@ class DebrisConfig:
     coverage_threshold_pct: float = 1.0
     # Require N consecutive high readings before boosting (filters out glare flukes).
     consecutive_readings: int = 2
+    # Stuck debris: when debris is still there after this many full boost cycles (the
+    # boost plus all its extensions), stop counting those spots so the pump doesn't
+    # cycle all day. A spot is watched again once it's clear for stuck_clear_readings
+    # images in a row.
+    ignore_stuck: bool = True
+    stuck_after_cycles: int = 1
+    stuck_clear_readings: int = 2
+    # How far (as % of the water zone's width) a detection can be from a stuck spot and
+    # still count as the same piece, since floating debris drifts a little.
+    stuck_match_radius_pct: float = 3.0
 
 
 @dataclass(frozen=True)

@@ -43,6 +43,7 @@ flowchart LR
 | `safety.py` | Swimmer alert rules and alert throttling |
 | `away.py` | Out-of-town detection from a calendar's secret iCal link (flights, or "vacation" events) |
 | `debris.py` | Debris scoring and the pump policy state machine |
+| `stuck.py` | Ignores debris that survives a full boost cycle until its spot is clear |
 | `pump.py` | OmniLogic adapter over `python-omnilogic-local`, with dry-run mode |
 | `notify.py` | Console, ntfy push and email (SMTP) alert channels |
 | `pipeline.py` | Ties a batch of frames to alerts, pump actions, the decision log and dashboard events |
@@ -132,6 +133,13 @@ The pump rule: **debris on the water in 2 consecutive images boosts the filter
 pump to 90% for 15 minutes, then it retests.** Still dirty at the retest extends
 the boost another 15 minutes (up to `max_extensions`); clear hands the pump back
 to its schedule. Debris outside the water zone never counts.
+
+**Stuck debris.** If debris is still there after a full boost cycle (the boost plus
+all its extensions), poolwatch stops counting those spots so the pump doesn't
+cycle all day over a leaf caught on a step or a reflection the model keeps calling
+debris. They show in gray on the dashboard. Once a spot is clear in 2 images in a
+row it's watched again, and new debris anywhere else always counts. Tune it with
+`ignore_stuck`, `stuck_after_cycles` and `stuck_clear_readings` under `[debris]`.
 
 The dashboard's home page shows the latest image with its labels drawn on it,
 the pump's current state with a countdown to the retest, and the latest
