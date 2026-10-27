@@ -23,15 +23,23 @@ class DebrisReading:
         )
 
 
-def score_debris(detections: list[Detection], water: Zone, config: DebrisConfig) -> DebrisReading:
-    debris = [
+def debris_in_water(detections: list[Detection], water: Zone, config: DebrisConfig) -> list[Detection]:
+    """Confident debris whose center is on the water (excluded areas don't count)."""
+    return [
         d for d in filter_labels(detections, config.debris_labels, config.min_confidence)
         if d.in_zone(water, "center")
     ]
+
+
+def reading_for(debris: list[Detection], water: Zone) -> DebrisReading:
     water_area = water.area()
     covered = sum(d.area for d in debris)
     pct = (covered / water_area * 100.0) if water_area else 0.0
     return DebrisReading(count=len(debris), coverage_pct=round(min(pct, 100.0), 3))
+
+
+def score_debris(detections: list[Detection], water: Zone, config: DebrisConfig) -> DebrisReading:
+    return reading_for(debris_in_water(detections, water, config), water)
 
 
 class PumpState(Enum):

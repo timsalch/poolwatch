@@ -72,6 +72,11 @@ min_confidence = 0.4
 count_threshold = 1               # debris items on the water that make an image "dirty"
 coverage_threshold_pct = 1.0      # ...or this % of the water surface covered
 consecutive_readings = 2          # dirty images in a row before the pump boosts
+# Debris still there after a full boost cycle (boost + all extensions) is "stuck":
+# those spots are ignored until they're clear in stuck_clear_readings images in a row.
+ignore_stuck = true
+stuck_after_cycles = 1
+stuck_clear_readings = 2
 
 [pump]
 boost_speed_pct = 90              # boost speed
